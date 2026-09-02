@@ -1,6 +1,7 @@
 """Opening panels whose animation can outlast one fixed delay."""
 
 from hsduper import panels
+from hsduper.transfer import Report, Result
 
 
 class PanelConfig:
@@ -59,3 +60,32 @@ def test_open_stash_stops_after_the_configured_attempts(monkeypatch):
 
     assert not panels.open_stash(cfg, log=lambda *_: None)
     assert clicks == ["click", "click", "click"]
+
+
+def test_use_all_right_clicks_without_ctrl(monkeypatch):
+    cfg = PanelConfig([], timeout_ms=0)
+    cfg.timings["button_hold_ms"] = 73
+    clicks = []
+    transfer_args = {}
+
+    monkeypatch.setattr(
+        panels.winput, "right_click", lambda hold_ms: clicks.append(("right", hold_ms))
+    )
+    monkeypatch.setattr(
+        panels.winput, "ctrl_right_click",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("CTRL must stay up")),
+    )
+
+    def fake_transfer(grid, config, **kwargs):
+        transfer_args.update(kwargs)
+        kwargs["click"]()
+        return Report(Result.DONE, 1, 1, 0)
+
+    monkeypatch.setattr(panels, "transfer", fake_transfer)
+
+    result = panels.use_all(cfg, object(), log=lambda *_: None)
+
+    assert result.result is Result.DONE
+    assert clicks == [("right", 73)]
+    assert transfer_args["anchors"] == ("inventory",)
+    assert transfer_args["forbidden"] == ("stash",)

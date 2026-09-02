@@ -110,8 +110,8 @@ def transfer(
             )
 
         # Some passes require a panel to be shut, not open. Using an item is
-        # the case: CTRL+RMB consumes it with the stash closed, and with the
-        # stash open the same gesture means something else. "The panel I need
+        # the case: plain RMB consumes/opens it with the stash closed, and with
+        # the stash open that gesture has another meaning. "The panel I need
         # gone is still there" has to stop the run just as firmly as a missing
         # one.
         present = [name for name in forbidden if cfg.anchor_ok(name)]

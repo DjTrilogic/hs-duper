@@ -63,7 +63,7 @@ def open_stash(cfg: Config, log=print) -> bool:
 
 
 def use_all(cfg: Config, grid, log=print):
-    """CTRL+RMB every item in the inventory, with the stash shut.
+    """RMB every item in the inventory, with the stash shut.
 
     The forbidden anchor is the safety here: with the stash open this gesture
     is not 'use', so the pass must refuse to run until the panel is really gone.
@@ -72,11 +72,7 @@ def use_all(cfg: Config, grid, log=print):
         grid, cfg,
         anchors=("inventory",),
         forbidden=("stash",),
-        click=lambda: winput.ctrl_right_click(
-            int(cfg.timing("button_hold_ms")),
-            int(cfg.timing("ctrl_settle_ms")),
-            cfg.data.get("ctrl_mode", "both"),
-        ),
+        click=lambda: winput.right_click(int(cfg.timing("button_hold_ms"))),
         log=log,
     )
 
