@@ -207,7 +207,7 @@ at your own instance instead.
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
-| `timing.use_click_delay_ms` | delay between item-opening clicks (default: 250 ms) |
+| `timing.use_click_delay_ms` | delay between item-opening clicks (default: 90 ms) |
 | `timing.use_retry_delay_ms` | settling delay before retrying items still visible (default: 500 ms) |
 | `use_attempts` | maximum item-opening passes, including the first (default: 5) |
 | `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |

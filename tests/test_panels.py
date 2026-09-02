@@ -15,7 +15,7 @@ class PanelConfig:
             "move_settle_ms": 0,
             "panel_open_timeout_ms": timeout_ms,
             "panel_poll_ms": 10,
-            "use_click_delay_ms": 250,
+            "use_click_delay_ms": 90,
             "use_retry_delay_ms": 500,
         }
 
@@ -122,7 +122,7 @@ def test_use_all_right_clicks_without_ctrl(monkeypatch):
     assert clicks == [("right", 73)]
     assert transfer_args["anchors"] == ("inventory_standalone",)
     assert transfer_args["forbidden"] == ("stash",)
-    assert transfer_args["click_delay_ms"] == 250
+    assert transfer_args["click_delay_ms"] == 90
     assert transfer_args["max_passes"] == 1
 
 

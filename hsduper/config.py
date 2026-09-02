@@ -35,7 +35,7 @@ DEFAULT_TIMING = {
     "pass_settle_ms": 250,
     "max_passes": 6,
     # Item opening is server-backed and needs a slower cadence than transfers.
-    "use_click_delay_ms": 250,
+    "use_click_delay_ms": 90,
     # Let late server responses settle before rescanning and retrying the slots
     # whose items are still visibly present.
     "use_retry_delay_ms": 500,
