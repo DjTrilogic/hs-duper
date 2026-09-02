@@ -209,7 +209,7 @@ at your own instance instead.
 | `timing.max_passes` | give-up limit per transfer |
 | `timing.use_click_delay_ms` | delay between item-opening clicks (default: 250 ms) |
 | `timing.use_retry_delay_ms` | settling delay before retrying items still visible (default: 500 ms) |
-| `use_attempts` | maximum item-opening passes, including the first (default: 3) |
+| `use_attempts` | maximum item-opening passes, including the first (default: 5) |
 | `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
 | `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
 | `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |

@@ -7,7 +7,7 @@ from .config import Config
 from .transfer import Report, Result, transfer
 
 DEFAULT_OPEN_ATTEMPTS = 3
-DEFAULT_USE_ATTEMPTS = 3
+DEFAULT_USE_ATTEMPTS = 5
 
 
 def _wait_for_anchor(cfg: Config, name: str, timeout_ms: float) -> bool:
