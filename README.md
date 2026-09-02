@@ -22,6 +22,21 @@ One cycle, with both machines running hs-duper:
 | 5 | withdraws the stash back | withdraws the same items |
 | 6 | | closes the stash and uses the items — and leaves it shut |
 
+### The receiver can be slow, and that is fine
+
+The receiver spends the end of each cycle off the wire, withdrawing and using
+the previous batch one click at a time. The sender's next go signal lands during
+that gap — it is **not** lost. The receiver reconnects asking for everything
+since the last message it saw, so the signal is replayed when it comes back, and
+a signal it has already acted on will not fire a second cycle.
+
+What this does cost is the sender's patience. It publishes, then waits
+`timing.confirm_timeout_ms` for the reply, and that wait has to cover the
+receiver finishing the previous batch before it can even look at the new one —
+tens of seconds for a full inventory. The default is 3 minutes. **Every cycle
+logs what it actually waited** (`confirmed after 12.4s`), so tune from real
+numbers rather than guessing.
+
 The receiver's cycle ends with the stash **closed**. It reopens only when the
 next go signal arrives, at step 3. That is deliberate: a panel left open across
 cycles can be showing the previous cycle's contents, so watching it would be
@@ -210,7 +225,7 @@ at your own instance instead.
 | | |
 | --- | --- |
 | `timing.after_ready_ms` | extra pause before the sender's own withdraw — the overlap dial |
-| `timing.confirm_timeout_ms` | how long each side waits on the other before giving up |
+| `timing.confirm_timeout_ms` | how long each side waits on the other. Must cover the receiver finishing the previous batch — see above |
 | `seen_token` | the receiver's confirmation text |
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
@@ -230,7 +245,7 @@ at your own instance instead.
 | **cursor moves, nothing happens** | `hover` tests whether the game sees the cursor at all; `click sweep` tries each button and reports which lands; `doctor` reports focus and privilege |
 | **run refuses to start** | an anchor is missing or a panel is closed. It is refusing on purpose — see Safety |
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
-| **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
+| **"the receiver never confirmed"** | either it did not see the items (check its `scan` of the stash) or it was still using the last batch — the message says how long it waited |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
 | **"the stash would not open"** | the character has drifted away from it, or `calibrate pact` was never run |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
@@ -259,7 +274,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-100 tests: grid geometry and occupancy against synthetic frames, the transfer
+102 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

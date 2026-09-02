@@ -43,7 +43,13 @@ DEFAULT_TIMING = {
     "panel_settle_ms": 450,
     # How long each side waits on the other: the sender for the confirmation,
     # the receiver for the items to show up in the stash.
-    "confirm_timeout_ms": 60000,
+    #
+    # The sender's wait has to cover the receiver still working through the
+    # PREVIOUS batch - withdrawing it and using it, one click per item - before
+    # it can even look at the new one. That is tens of seconds for a full
+    # inventory, so a minute is not the safe margin it looks like. Each cycle
+    # logs what it actually waited; tune from that rather than from this.
+    "confirm_timeout_ms": 180000,
 }
 
 #: Phase 2. The room is a specific pact's id, not a fixed channel number, so it

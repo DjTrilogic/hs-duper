@@ -72,12 +72,21 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
 
         control.check()
         log("  waiting for the receiver to confirm it can see them")
-        if not wait_seen():
+        started = time.monotonic()
+        confirmed = wait_seen()
+        waited = time.monotonic() - started
+        if not confirmed:
             raise Stopped(
-                "the receiver never confirmed. The items are in the stash - it is safe "
-                "to withdraw them by hand, but the cycle did not happen."
+                f"the receiver never confirmed, after {waited:.0f}s. The items are in "
+                "the stash - it is safe to withdraw them by hand, but the cycle did not "
+                "happen. If the receiver was simply still busy using the last batch, "
+                "raise timing.confirm_timeout_ms."
             )
-        log("  confirmed")
+        # Printed every cycle because it is the number that decides how patient
+        # the sender has to be: the receiver spends the gap withdrawing and
+        # using the previous batch, and how long that takes depends on how many
+        # items there are.
+        log(f"  confirmed after {waited:.1f}s")
         if gap:
             time.sleep(gap)
 

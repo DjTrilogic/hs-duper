@@ -158,3 +158,30 @@ def test_a_repeat_after_reconnect_is_not_acted_on_twice():
     n = streaming(stream)
     assert n.wait_for(lambda t: t == "hsd-ready", timeout=5) == "hsd-ready"
     assert n.wait_for(lambda t: t == "hsd-ready", timeout=0.3, reconnect_s=0.01) is None
+
+
+def test_a_signal_sent_while_not_listening_is_delivered_on_return():
+    """The receiver spends part of every cycle off the wire, using items. The
+    sender's next go signal lands during that gap, and must still arrive when
+    the receiver comes back rather than being missed."""
+    stream = FakeStream([message("go1", "hsd-ready")], [message("go2", "hsd-ready")])
+    n = streaming(stream)
+
+    assert n.wait_for(lambda t: t == "hsd-ready", timeout=5) == "hsd-ready"
+    # ...the receiver goes away and does its panel work here, connected to
+    # nothing. The sender publishes go2 in the meantime.
+    assert n.wait_for(lambda t: t == "hsd-ready", timeout=5) == "hsd-ready"
+
+    assert "since=go1" in stream.opened[1], (
+        "the second wait must resume after the last message seen, or the signal "
+        "sent during the gap is never delivered"
+    )
+
+
+def test_an_already_consumed_signal_does_not_fire_a_second_cycle():
+    """Resuming replays from the last id, so the message that ended the last
+    wait can arrive again. Acting on it would start a cycle nobody asked for."""
+    stream = FakeStream([message("go1", "hsd-ready")], [message("go1", "hsd-ready")])
+    n = streaming(stream)
+    assert n.wait_for(lambda t: t == "hsd-ready", timeout=5) == "hsd-ready"
+    assert n.wait_for(lambda t: t == "hsd-ready", timeout=0.3, reconnect_s=0.01) is None
