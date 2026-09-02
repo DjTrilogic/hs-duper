@@ -6,6 +6,21 @@ from . import capture, winput
 from .config import Config
 from .transfer import transfer
 
+DEFAULT_OPEN_ATTEMPTS = 3
+
+
+def _wait_for_anchor(cfg: Config, name: str, timeout_ms: float) -> bool:
+    """Poll an anchor until it appears or its timeout expires."""
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+    poll_s = max(cfg.timing("panel_poll_ms"), 10) / 1000
+    while True:
+        if cfg.anchor_ok(name):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(poll_s, remaining))
+
 
 def close_stash(cfg: Config, log=print) -> bool:
     """Shut the stash and confirm it actually shut."""
@@ -32,15 +47,18 @@ def open_stash(cfg: Config, log=print) -> bool:
     point = cfg.data.get("stash_object_point")
     if not point:
         raise KeyError("stash_object_point is not calibrated - run `calibrate pact`")
-    for attempt in (1, 2):
+    attempts = max(int(cfg.data.get("panel_open_attempts", DEFAULT_OPEN_ATTEMPTS)), 1)
+    timeout_ms = cfg.timing("panel_open_timeout_ms")
+    for attempt in range(1, attempts + 1):
         winput.move_to(*point)
         time.sleep(cfg.timing("move_settle_ms") / 1000)
         winput.left_click()
-        time.sleep(cfg.timing("panel_settle_ms") / 1000)
-        if cfg.anchor_ok("stash"):
+        if _wait_for_anchor(cfg, "stash", timeout_ms):
             log(f"  stash open (attempt {attempt})")
             return True
-    log("  stash did not open")
+        if attempt < attempts:
+            log(f"  stash not detected after attempt {attempt}/{attempts} - retrying")
+    log(f"  stash did not open after {attempts} attempt(s)")
     return False
 
 

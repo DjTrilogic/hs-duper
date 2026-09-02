@@ -41,6 +41,11 @@ DEFAULT_TIMING = {
     "after_ready_ms": 0,
     # After clicking a panel open or shut, before believing the anchor.
     "panel_settle_ms": 450,
+    # Opening can animate for longer than the generic settle delay. Poll the
+    # anchor throughout this window so a late-opened stash is detected before
+    # another interaction clicks it shut again.
+    "panel_open_timeout_ms": 2500,
+    "panel_poll_ms": 100,
     # How long each side waits on the other: the sender for the confirmation,
     # the receiver for the items to show up in the stash.
     "confirm_timeout_ms": 60000,
