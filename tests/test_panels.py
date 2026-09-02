@@ -7,14 +7,15 @@ from hsduper.transfer import Report, Result
 class PanelConfig:
     def __init__(self, anchor_reads, *, attempts=3, timeout_ms=1000):
         self.data = {
-            "stash_object_point": [100, 200],
             "panel_open_attempts": attempts,
         }
         self.anchor_reads = iter(anchor_reads)
         self.timings = {
+            "button_hold_ms": 70,
             "move_settle_ms": 0,
             "panel_open_timeout_ms": timeout_ms,
             "panel_poll_ms": 10,
+            "use_batch_delay_ms": 1000,
         }
 
     def anchor_ok(self, name):
@@ -31,41 +32,47 @@ class InventoryConfig(PanelConfig):
         return next(self.anchor_reads)
 
 
+def test_press_interact_uses_the_f_key(monkeypatch):
+    taps = []
+    monkeypatch.setattr(panels.winput, "tap", lambda scan, vk: taps.append((scan, vk)))
+
+    panels.winput.press_interact()
+
+    assert taps == [(panels.winput.SC_F, panels.winput.VK_F)]
+
+
 def test_open_stash_polls_until_a_late_anchor_appears(monkeypatch):
     cfg = PanelConfig([False, False, True])
-    clicks = []
+    presses = []
     sleeps = []
-    monkeypatch.setattr(panels.winput, "move_to", lambda *_: None)
-    monkeypatch.setattr(panels.winput, "left_click", lambda: clicks.append("click"))
+    monkeypatch.setattr(panels.winput, "press_interact", lambda: presses.append("f"))
     monkeypatch.setattr(panels.time, "sleep", lambda seconds: sleeps.append(seconds))
 
     assert panels.open_stash(cfg, log=lambda *_: None)
-    assert clicks == ["click"]
+    assert presses == ["f"]
     assert len(sleeps) >= 2
 
 
 def test_open_stash_retries_after_a_full_detection_timeout(monkeypatch):
     cfg = PanelConfig([False, True], attempts=2, timeout_ms=0)
-    clicks = []
+    presses = []
     logs = []
-    monkeypatch.setattr(panels.winput, "move_to", lambda *_: None)
-    monkeypatch.setattr(panels.winput, "left_click", lambda: clicks.append("click"))
+    monkeypatch.setattr(panels.winput, "press_interact", lambda: presses.append("f"))
     monkeypatch.setattr(panels.time, "sleep", lambda *_: None)
 
     assert panels.open_stash(cfg, log=logs.append)
-    assert clicks == ["click", "click"]
+    assert presses == ["f", "f"]
     assert any("retrying" in line for line in logs)
 
 
 def test_open_stash_stops_after_the_configured_attempts(monkeypatch):
     cfg = PanelConfig([False, False, False], attempts=3, timeout_ms=0)
-    clicks = []
-    monkeypatch.setattr(panels.winput, "move_to", lambda *_: None)
-    monkeypatch.setattr(panels.winput, "left_click", lambda: clicks.append("click"))
+    presses = []
+    monkeypatch.setattr(panels.winput, "press_interact", lambda: presses.append("f"))
     monkeypatch.setattr(panels.time, "sleep", lambda *_: None)
 
     assert not panels.open_stash(cfg, log=lambda *_: None)
-    assert clicks == ["click", "click", "click"]
+    assert presses == ["f", "f", "f"]
 
 
 def test_open_inventory_presses_i_and_waits_for_its_anchor(monkeypatch):
@@ -114,3 +121,27 @@ def test_use_all_right_clicks_without_ctrl(monkeypatch):
     assert clicks == [("right", 73)]
     assert transfer_args["anchors"] == ("inventory_standalone",)
     assert transfer_args["forbidden"] == ("stash",)
+
+
+def test_use_all_waits_for_the_server_every_ten_clicks(monkeypatch):
+    cfg = PanelConfig([], timeout_ms=0)
+    clicks = []
+    sleeps = []
+    logs = []
+    monkeypatch.setattr(panels.winput, "right_click", lambda *_: clicks.append("right"))
+    monkeypatch.setattr(panels.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    def fake_transfer(grid, config, **kwargs):
+        for _ in range(21):
+            kwargs["click"]()
+        return Report(Result.DONE, 21, 1, 0)
+
+    monkeypatch.setattr(panels, "transfer", fake_transfer)
+
+    result = panels.use_all(cfg, object(), log=logs.append)
+
+    assert result.result is Result.DONE
+    assert len(clicks) == 21
+    assert sleeps == [1.0, 1.0]
+    assert any("10 use click(s)" in line for line in logs)
+    assert any("20 use click(s)" in line for line in logs)

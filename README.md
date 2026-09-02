@@ -119,19 +119,10 @@ keeps Hero Siege's drawn cursor out of title templates, so it is expected.
 | `stash` | the Blood Pact stash grid |
 | park point | somewhere the cursor can rest without raising a tooltip over a slot. Every capture is taken with it parked there |
 | anchors | the INVENTORY title with the stash open, the BLOOD PACT STASH title, then the standalone INVENTORY title after `ESC` and `I`. These prove the correct panel layout is open before any click — see Safety |
-| stash object | `calibrate pact` — where to click in the world to open the stash |
+| stash interaction | no positional calibration: stand in front of it and hs-duper presses `F` |
 
-The **receiver** needs the stash object: it opens the stash each time the go
-signal arrives, having shut it to use the previous batch.
-
-The **sender** starts with the stash already open, so it normally never clicks
-the object - but calibrate it anyway. It is the difference between recovering
-from a stash that closed unexpectedly and stopping dead. Stand where you can
-click it:
-
-```powershell
-.\.venv\Scripts\python.exe -m hsduper calibrate pact
-```
+The character must remain standing in front of the stash. Whenever it needs to
+reopen the panel, hs-duper presses `F` and waits for the stash anchor.
 
 Redo one part at a time by naming it: `calibrate stash`, `calibrate park anchors`.
 
@@ -193,7 +184,7 @@ at your own instance instead.
 
 | | |
 | --- | --- |
-| `calibrate [part ...]` | measure things (`inventory`, `stash`, `park`, `anchors`, `chat`, `pact`) |
+| `calibrate [part ...]` | measure things (`inventory`, `stash`, `park`, `anchors`, `chat`) |
 | `scan [grid ...]` | print what it sees, click nothing |
 | `probe [grid]` | measure a grid's cell pitch off the screen |
 | `deposit` / `withdraw` | one bulk transfer |
@@ -216,6 +207,8 @@ at your own instance instead.
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
+| `timing.use_batch_delay_ms` | pause after each batch of item-use clicks (default: 1000 ms) |
+| `use_batch_size` | item-use clicks between server pauses (default: 10) |
 | `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
 | `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
 | `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |
@@ -265,7 +258,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-100 tests: grid geometry and occupancy against synthetic frames, the transfer
+114 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 
@@ -273,5 +266,5 @@ reader, the notifier's reconnect and duplicate handling, and the command table.
 
 Phase 1 (bulk transfer) and Phase 2 (the coordinated cycle) both work. The
 sender path is the one exercised in anger; the receiver's panel steps — closing
-the stash and clicking the stash object to reopen it — are tested but have seen
-less real use.
+the stash, reopening it with `F`, and opening the standalone inventory with `I`
+— are covered by automated tests but have seen less real use.

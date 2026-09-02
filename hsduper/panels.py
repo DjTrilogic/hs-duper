@@ -2,11 +2,12 @@
 
 import time
 
-from . import capture, winput
+from . import control, winput
 from .config import Config
 from .transfer import transfer
 
 DEFAULT_OPEN_ATTEMPTS = 3
+DEFAULT_USE_BATCH_SIZE = 10
 
 
 def _wait_for_anchor(cfg: Config, name: str, timeout_ms: float) -> bool:
@@ -38,21 +39,16 @@ def close_stash(cfg: Config, log=print) -> bool:
 
 
 def open_stash(cfg: Config, log=print) -> bool:
-    """Click the stash object in the world, and confirm the panel came back.
+    """Press F in front of the stash, and confirm the panel came back.
 
     This is the one step that depends on where the character is standing rather
-    than on the interface, so it is the one that quietly stops working. The
-    return value is checked by the caller for exactly that reason.
+    than on the interface. The return value is checked by the caller so a
+    character that moved away from the stash cannot start an unsafe pass.
     """
-    point = cfg.data.get("stash_object_point")
-    if not point:
-        raise KeyError("stash_object_point is not calibrated - run `calibrate pact`")
     attempts = max(int(cfg.data.get("panel_open_attempts", DEFAULT_OPEN_ATTEMPTS)), 1)
     timeout_ms = cfg.timing("panel_open_timeout_ms")
     for attempt in range(1, attempts + 1):
-        winput.move_to(*point)
-        time.sleep(cfg.timing("move_settle_ms") / 1000)
-        winput.left_click()
+        winput.press_interact()
         if _wait_for_anchor(cfg, "stash", timeout_ms):
             log(f"  stash open (attempt {attempt})")
             return True
@@ -87,11 +83,26 @@ def use_all(cfg: Config, grid, log=print):
     The forbidden anchor is the safety here: with the stash open this gesture
     is not 'use', so the pass must refuse to run until the panel is really gone.
     """
+    clicks = 0
+    hold_ms = int(cfg.timing("button_hold_ms"))
+    batch_size = max(int(cfg.data.get("use_batch_size", DEFAULT_USE_BATCH_SIZE)), 1)
+    batch_delay = max(cfg.timing("use_batch_delay_ms"), 0) / 1000
+
+    def use_one() -> None:
+        nonlocal clicks
+        winput.right_click(hold_ms)
+        clicks += 1
+        if clicks % batch_size == 0 and batch_delay:
+            log(f"  {clicks} use click(s) sent - waiting {batch_delay:g}s for the server")
+            control.check()
+            time.sleep(batch_delay)
+            control.check()
+
     return transfer(
         grid, cfg,
         anchors=("inventory_standalone",),
         forbidden=("stash",),
-        click=lambda: winput.right_click(int(cfg.timing("button_hold_ms"))),
+        click=use_one,
         log=log,
     )
 

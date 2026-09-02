@@ -3,8 +3,8 @@
 The sender never touches the panels: it deposits, announces, withdraws, and
 goes round again with the stash open throughout. The receiver has to shut the
 stash, open the inventory, and use what it took. It opens the stash again on
-the next cycle, which is the fragile half: that needs a click on the stash
-object in the world, so it depends on the character still standing next to it.
+the next cycle, which is the fragile half: pressing F only works while the
+character is still standing in front of it.
 
 Every step is injected rather than reached for, so the sequence can be tested
 without a game.

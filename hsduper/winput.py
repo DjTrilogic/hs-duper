@@ -36,9 +36,11 @@ SC_LCONTROL = 0x1D
 VK_LCONTROL = 0xA2
 VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
+VK_F = 0x46
 VK_I = 0x49
 SC_RETURN = 0x1C
 SC_ESCAPE = 0x01
+SC_F = 0x21
 SC_I = 0x17
 
 #: How CTRL is put on the wire. Real hardware delivers both a virtual-key code
@@ -242,6 +244,11 @@ def press_enter() -> None:
 
 def press_escape() -> None:
     tap(SC_ESCAPE, VK_ESCAPE)
+
+
+def press_interact() -> None:
+    """Interact with the object in front of the character using F."""
+    tap(SC_F, VK_F)
 
 
 def press_inventory() -> None:

@@ -170,12 +170,7 @@ def run(parts: list[str]) -> None:
     if "pact" in wanted:
         print()
         print("=== pact ===")
-        print("  Both roles need this: the chat cannot be reached while the stash is")
-        print("  open, so every cycle shuts it and clicks it open again.")
-        print("  ESC closes it, so only reopening needs a position.")
-        print("  Stand where you farm, with the stash CLOSED.")
-        cfg.data["stash_object_point"] = list(mark("The STASH OBJECT in the world."))
-        cfg.save()
+        print("  No position is needed: stand in front of the stash and hs-duper uses F.")
 
     if "anchors" in wanted:
         print("\n=== panel anchors ===")
