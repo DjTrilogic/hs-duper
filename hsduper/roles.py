@@ -45,34 +45,55 @@ def _moved(report: Report, what: str) -> int:
     return report.moved
 
 
-def _withdraw_and_close(cfg: Config, withdraw, close_stash, log=print) -> int:
+def _withdraw_and_close(
+    cfg: Config, withdraw, close_stash, recover_cursor=None, log=print
+) -> int:
     """Withdraw, recovering if a missed CTRL leaves an item on the cursor.
 
-    With an item attached, the first Escape returns it to its stash slot instead
-    of closing the panel. A failed close is therefore useful evidence: rescan
-    and retry the transfer while the stash is still verifiably open. This also
-    covers the last visible item: a grid can look empty while that item is still
-    attached to the cursor.
+    A failed close is evidence that an item may still be attached. The recovery
+    callback places it into a screen-confirmed empty inventory slot, then the
+    remaining stash is retried with another CTRL delivery mode. This also covers
+    the last visible item: a grid can look empty while it is still on the cursor.
     """
     attempts = max(
         int(cfg.data.get("withdraw_recovery_attempts", DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS)),
         1,
     )
-    try:
-        report = withdraw()
-    except control.Aborted:
-        # An abort can land just after a plain pick-up was misinterpreted. CTRL
-        # is already released by transfer's finally block; use Escape only to
-        # put a carried item back, then once more to close the still-open stash.
-        # Cleanup must not call control.check(), because the abort is already
-        # set and this is precisely the safe work that remains to be done.
+    configured_mode = cfg.data.get("ctrl_mode")
+    fallback_modes = ("scancode", "vk", "both")
+
+    def abort_cleanup() -> None:
+        # CTRL is already released by transfer's finally block. Place any
+        # carried item into inventory, then close the still-open stash. This
+        # deliberately ignores the abort flag: it is the safe work remaining.
         log("  abort cleanup: returning any cursor item and closing the stash")
         try:
+            if recover_cursor is not None:
+                recover_cursor()
             if not close_stash():
                 close_stash()
         except Exception as exc:
             log(f"  abort cleanup could not verify the stash: {exc}")
-        raise
+
+    def run_withdraw(attempt: int):
+        mode = configured_mode or fallback_modes[min(attempt - 1, len(fallback_modes) - 1)]
+        marker = object()
+        previous = cfg.data.get("ctrl_mode", marker)
+        cfg.data["ctrl_mode"] = mode
+        log(f"  withdraw CTRL mode: {mode}")
+        try:
+            try:
+                return withdraw()
+            except control.Aborted:
+                abort_cleanup()
+                raise
+        finally:
+            if previous is marker:
+                cfg.data.pop("ctrl_mode", None)
+            else:
+                cfg.data["ctrl_mode"] = previous
+
+    report = run_withdraw(1)
     withdrawn = report.moved
 
     for attempt in range(1, attempts + 1):
@@ -83,18 +104,21 @@ def _withdraw_and_close(cfg: Config, withdraw, close_stash, log=print) -> int:
             _moved(report, "the withdraw")
             return max(withdrawn, report.moved)
 
+        log("  stash stayed open; placing any cursor item into an empty inventory cell")
+        if recover_cursor is not None:
+            recover_cursor()
+
         if attempt >= attempts:
+            # Leave the UI and cursor in a safe state even though this cycle is
+            # about to stop. If the recovery placed an item, this Escape should
+            # now close the stash instead of merely cancelling the cursor.
+            log("  final cleanup: closing the stash before stopping")
+            close_stash()
             break
 
-        # Even a report with no visible slots left can still be carrying its
-        # final item on the cursor. The failed Escape may just have returned it,
-        # so always rescan rather than trusting the previous occupancy count.
-        log(
-            "  the failed close may have returned an item from the cursor; "
-            "rescanning and retrying the withdraw"
-        )
+        log("  rescanning and retrying the withdraw with the next CTRL mode")
         control.check()
-        report = withdraw()
+        report = run_withdraw(attempt + 1)
         withdrawn = max(withdrawn, report.moved)
 
     raise Stopped(
@@ -162,7 +186,7 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
 
 def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_items,
                  confirm, withdraw, close_stash, open_inventory, use_all,
-                 record_opening=None, log=print):
+                 recover_cursor=None, record_opening=None, log=print):
     """wait -> open stash -> see -> confirm -> withdraw -> shut -> open inventory -> use.
 
     A cycle ends with the stash shut and does not reopen it. Reopening only
@@ -209,7 +233,9 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
         confirm(seen_token)
 
         control.check()
-        withdrawn = _withdraw_and_close(cfg, withdraw, close_stash, log=log)
+        withdrawn = _withdraw_and_close(
+            cfg, withdraw, close_stash, recover_cursor=recover_cursor, log=log
+        )
 
         control.check()
         log("  opening the inventory")

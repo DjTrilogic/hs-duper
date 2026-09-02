@@ -18,8 +18,8 @@ import numpy as np  # noqa: E402
 from . import calibrate, capture, chat, control, doctor, notify, panels, roles, signal, stats  # noqa: E402
 from .config import GRID_NAMES, Config  # noqa: E402
 from .grid import BlankCapture  # noqa: E402
-from .transfer import (NotFocused, PanelClosed, Report, Result, park, transfer,  # noqa: E402
-                       wait_until_occupied)  # noqa: E402
+from .transfer import (NotFocused, PanelClosed, Report, Result, park,  # noqa: E402
+                       return_cursor_item, transfer, wait_until_occupied)  # noqa: E402
 
 USAGE = """hs-duper
 
@@ -650,6 +650,8 @@ def cmd_pact(args: list[str]) -> int:
                 if dry else link.announce,
                 withdraw=move(stash),
                 close_stash=(lambda: True) if dry else lambda: panels.close_stash(cfg),
+                recover_cursor=None if dry else
+                lambda: return_cursor_item(stash, inventory, cfg),
                 open_inventory=(lambda: True) if dry else lambda: panels.open_inventory(cfg),
                 use_all=nothing_happened("use every item in the inventory")
                 if no_use else lambda: panels.use_all(cfg, inventory),

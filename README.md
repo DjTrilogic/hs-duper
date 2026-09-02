@@ -204,11 +204,12 @@ at your own instance instead.
   Windows state is checked. The checked CTRL-down and LMB-down are then placed
   in the same `SendInput` batch. If CTRL is not confirmed, hs-duper refuses to
   send what would become a plain item-pick-up click.
-- If a missed modifier leaves an item on the cursor, the first Escape returns
-  it to the stash. hs-duper detects that the panel stayed open, rescans, retries
-  the withdrawal, and only then tries to close it again.
-- F12 during a withdrawal performs the same safe Escape cleanup before exiting,
-  so an aborted pass does not leave an item attached to the cursor.
+- If a missed modifier leaves an item on the cursor, hs-duper places it into a
+  screen-confirmed empty inventory cell and retries the remaining stash with
+  the next CTRL mode (`scancode`, then `vk`, then `both`). If the inventory is
+  full, an empty stash cell is used as a safe fallback.
+- F12 during a withdrawal performs the same cursor-placement cleanup before
+  closing the stash and exiting.
 - A blank capture is treated as a failure, never as an empty grid.
 
 ---

@@ -72,6 +72,39 @@ def park(cfg: Config) -> None:
     time.sleep(cfg.timing("tooltip_ms") / 1000)
 
 
+def return_cursor_item(source: Grid, destination: Grid, cfg: Config, log=print) -> bool:
+    """Place a possibly carried item into a known empty inventory slot.
+
+    Escape is not a reliable way to clear Hero Siege's item cursor. A plain
+    click on a slot that the screen has just confirmed empty is deterministic:
+    it places a carried item, and is harmless when the cursor is already empty.
+    The destination inventory is preferred because that completes the missed
+    withdrawal. An empty source slot is used only when the inventory is full.
+    This helper deliberately does not call ``control.check`` so abort cleanup
+    can still put an item somewhere safe after F12 has been requested.
+    """
+    for grid, label in ((destination, "inventory"), (source, "stash")):
+        park(cfg)
+        cells = grid.cells(~grid.occupied())
+        if not cells:
+            continue
+
+        row, col = cells[0]
+        x, y = grid.cell_center(row, col)
+        winput.move_to(x, y)
+        time.sleep(cfg.timing("move_settle_ms") / 1000)
+        winput.left_click(hold_ms=int(cfg.timing("button_hold_ms")))
+        park(cfg)
+        time.sleep(cfg.timing("pass_settle_ms") / 1000)
+
+        if bool(grid.occupied()[row, col]):
+            log(f"  cursor recovery: item placed safely in {label} cell ({row}, {col})")
+            return True
+
+    log("  cursor recovery: cursor was already empty (or placement was not detected)")
+    return False
+
+
 def transfer(
     source: Grid,
     cfg: Config,

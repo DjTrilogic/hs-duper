@@ -146,6 +146,10 @@ class Receiver:
         self.calls.append("open_inventory")
         return self.inventory_opens
 
+    def recover_cursor(self):
+        self.calls.append("recover_cursor")
+        return True
+
     def use_all(self):
         self.calls.append("use")
         return self.use_report
@@ -159,7 +163,8 @@ class Receiver:
                             see_items=self.see_items, confirm=self.confirm,
                             withdraw=self.withdraw, close_stash=self.close_stash,
                             open_inventory=self.open_inventory,
-                            use_all=self.use_all, record_opening=self.record_opening,
+                            use_all=self.use_all, recover_cursor=self.recover_cursor,
+                            record_opening=self.record_opening,
                             log=lambda *_: None)
 
 
@@ -236,6 +241,7 @@ def test_receiver_retries_withdraw_when_escape_returns_a_carried_item(cfg):
         confirm=side.confirm,
         withdraw=side.withdraw,
         close_stash=side.close_stash,
+        recover_cursor=side.recover_cursor,
         open_inventory=side.open_inventory,
         use_all=side.use_all,
         log=logs.append,
@@ -243,10 +249,15 @@ def test_receiver_retries_withdraw_when_escape_returns_a_carried_item(cfg):
 
     assert side.calls == [
         "wait", "ensure_stash", "see", "confirm:hsd-seen",
-        "withdraw", "close", "withdraw", "close", "open_inventory", "use",
+        "withdraw", "close", "recover_cursor", "withdraw", "close",
+        "open_inventory", "use",
     ]
     assert cycles[0].withdrew == 18
-    assert any("returned an item from the cursor" in line for line in logs)
+    assert any("empty inventory cell" in line for line in logs)
+    assert [line for line in logs if "withdraw CTRL mode" in line] == [
+        "  withdraw CTRL mode: scancode",
+        "  withdraw CTRL mode: vk",
+    ]
 
 
 def test_receiver_rescans_even_when_the_last_item_was_on_the_cursor(cfg):
@@ -278,8 +289,32 @@ def test_receiver_abort_returns_a_cursor_item_and_closes_the_stash(cfg):
     with pytest.raises(control.Aborted, match="abort requested"):
         side.run(cfg)
 
-    assert side.calls[-3:] == ["withdraw", "close", "close"]
+    assert side.calls[-4:] == ["withdraw", "recover_cursor", "close", "close"]
     assert "open_inventory" not in side.calls
+
+
+def test_receiver_abort_during_a_retry_also_cleans_the_cursor(cfg):
+    side = Receiver(GO)
+    withdrawals = 0
+    closes = iter([False, True])
+
+    def withdraw():
+        nonlocal withdrawals
+        side.calls.append("withdraw")
+        withdrawals += 1
+        if withdrawals == 1:
+            return report(1, Result.STALLED, left=17)
+        control.request_abort()
+        raise control.Aborted("abort requested")
+
+    side.withdraw = withdraw
+    side.close_stash = lambda: side.calls.append("close") or next(closes)
+
+    with pytest.raises(control.Aborted, match="abort requested"):
+        side.run(cfg)
+
+    assert side.calls[-3:] == ["withdraw", "recover_cursor", "close"]
+    assert side.calls.count("recover_cursor") == 2
 
 
 def test_receiver_opens_inventory_before_using_items(cfg):

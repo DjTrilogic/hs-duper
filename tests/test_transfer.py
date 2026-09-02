@@ -9,7 +9,7 @@ import hsduper.transfer as transfer_module
 from hsduper import control, doctor, winput
 from hsduper.config import Config
 from hsduper.grid import Grid
-from hsduper.transfer import NotFocused, PanelClosed, Result, transfer
+from hsduper.transfer import NotFocused, PanelClosed, Result, return_cursor_item, transfer
 
 
 def full(n=2):
@@ -89,6 +89,36 @@ def test_clicks_land_on_the_cell_centres(cfg, click, fake_mouse):
     grid = ScriptedGrid([one(), empty(), empty()])
     transfer(grid, cfg, click=click, log=lambda *_: None)
     assert fake_mouse["clicks"] == [(100, 200)]
+
+
+def test_cursor_recovery_prefers_an_empty_inventory_cell(cfg, fake_mouse, monkeypatch):
+    source = ScriptedGrid([full()])
+    destination = ScriptedGrid([empty(), one()])
+    clicks = []
+    monkeypatch.setattr(
+        winput,
+        "left_click",
+        lambda hold_ms: clicks.append((fake_mouse["pos"], hold_ms)),
+    )
+
+    assert return_cursor_item(source, destination, cfg, log=lambda *_: None)
+    assert clicks == [((100, 200), 70)]
+
+
+def test_cursor_recovery_falls_back_to_an_empty_stash_cell(
+    cfg, fake_mouse, monkeypatch
+):
+    source = ScriptedGrid([empty(), one()])
+    destination = ScriptedGrid([full()])
+    clicks = []
+    monkeypatch.setattr(
+        winput,
+        "left_click",
+        lambda hold_ms: clicks.append((fake_mouse["pos"], hold_ms)),
+    )
+
+    assert return_cursor_item(source, destination, cfg, log=lambda *_: None)
+    assert clicks == [((100, 200), 70)]
 
 
 def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
