@@ -14,18 +14,23 @@ One cycle, with both machines running hs-duper:
 
 | | sender | receiver |
 | --- | --- | --- |
-| 1 | deposits the inventory into the stash | waiting |
-| 2 | publishes the go signal | receives it |
-| 3 | withdraws the stash back | withdraws the same items |
-| 4 | | closes the stash, uses the items, reopens it |
+| 1 | deposits the inventory into the stash | waits with its stash closed and inventory open |
+| 2 | publishes `DEPOSITED` | receives it, presses F to open the stash |
+| 3 | waits | verifies that item cells are visible, publishes `VISIBLE` |
+| 4 | receives `VISIBLE`, withdraws | withdraws the same items |
+| 5 | waits | closes the stash, presses I if needed, uses the items |
+| 6 | receives `DONE`; the next cycle may start | publishes `DONE` with the inventory left open |
 
-The signal is published between the two transfers on purpose: the receiver
-starts pulling the moment the items land, so its work overlaps the sender's
-withdraw instead of queueing behind it.
+Each message contains a random sender-session id and the cycle number. This
+makes the three signals distinct and prevents a cached message from an earlier
+run from satisfying the wrong wait. `VISIBLE` is deliberately sent before both
+sides withdraw, so neither starts removing items before the receiver has opened
+the refreshed stash and seen them. `DONE` prevents the sender from starting the
+next deposit while the receiver is still using the previous items.
 
-**The signal does not travel through the game.** The sender must never close the
-stash, and the in-game chat cannot be reached while it is open — so the go
-signal goes over a pub/sub topic both machines share.
+**The signals do not travel through the game.** The sender must never close the
+stash, and the in-game chat cannot be reached while it is open — so the cycle
+signals go over a pub/sub topic both machines share.
 
 ### Run it
 
@@ -44,18 +49,9 @@ signal goes over a pub/sub topic both machines share.
 | `--dry-run` | narrate every step, click nothing, publish nothing |
 | `--no-use` | receiver: skip using the items, so nothing is consumed |
 
-### Testing alone
-
-The sender loop is safe to run with nobody listening — the items go to the stash
-and come straight back:
-
-```powershell
-.\.venv\Scripts\python.exe -m hsduper watch          # one terminal
-.\.venv\Scripts\python.exe -m hsduper pact sender 1  # another
-```
-
-For the receiver, run `pact receiver 1 --no-use` in one terminal and `ping` in
-another to play the part of your partner.
+Start the receiver first. It closes its initially open stash and leaves the
+inventory open before it begins waiting. The sender now waits for both receiver
+acknowledgements, so a complete cycle requires both processes.
 
 ---
 
@@ -96,12 +92,6 @@ hover highlight before the pixels are captured, so it is expected.
 | `stash` | the Blood Pact stash grid |
 | park point | somewhere the cursor can rest without raising a tooltip over a slot. Every capture is taken with it parked there |
 | anchors | the INVENTORY and BLOOD PACT STASH titles. These are what prove a panel is open before any click — see Safety |
-
-Receivers also need the stash object, since they close and reopen the panel:
-
-```powershell
-.\.venv\Scripts\python.exe -m hsduper calibrate pact
-```
 
 Redo one part at a time by naming it: `calibrate stash`, `calibrate park anchors`.
 
@@ -163,7 +153,7 @@ at your own instance instead.
 
 | | |
 | --- | --- |
-| `calibrate [part ...]` | measure things (`inventory`, `stash`, `park`, `anchors`, `chat`, `pact`) |
+| `calibrate [part ...]` | measure things (`inventory`, `stash`, `park`, `anchors`, `chat`) |
 | `scan [grid ...]` | print what it sees, click nothing |
 | `probe [grid]` | measure a grid's cell pitch off the screen |
 | `deposit` / `withdraw` | one bulk transfer |
@@ -180,11 +170,10 @@ at your own instance instead.
 
 | | |
 | --- | --- |
-| `timing.after_ready_ms` | extra pause before the sender's own withdraw — the overlap dial |
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
-| `ready_token` | the go signal's text |
+| `ready_token` | prefix shared by the three cycle signals |
 | `notify.topic` / `notify.base` | the shared topic and relay |
 | `ctrl_mode` | how CTRL is delivered: `both`, `vk`, `scancode` |
 
@@ -213,10 +202,11 @@ shows up as a pass that moved nothing). Occupancy is the 95th percentile of
 luminance over the middle of each cell: an empty slot is near-uniform dark, and
 any item icon puts bright pixels in it whatever its colour.
 
-**The signal** is one token on a shared pub/sub topic. The receiver holds a
-single streamed connection open rather than polling — polling once a second
-would be thousands of requests across a wait, and the public relay rate-limits
-anonymous callers. A dropped connection reconnects from the last message seen.
+**The signals** are three short tokens (`DEPOSITED`, `VISIBLE`, and `DONE`) on a
+shared pub/sub topic. Both sides hold a streamed connection open while waiting
+rather than polling — polling once a second would be thousands of requests
+across a wait, and the public relay rate-limits anonymous callers. A dropped
+connection reconnects from the last message seen.
 
 ## Tests
 
@@ -224,7 +214,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-88 tests: grid geometry and occupancy against synthetic frames, the transfer
+The tests cover grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 
@@ -232,5 +222,5 @@ reader, the notifier's reconnect and duplicate handling, and the command table.
 
 Phase 1 (bulk transfer) and Phase 2 (the coordinated cycle) both work. The
 sender path is the one exercised in anger; the receiver's panel steps — closing
-the stash and clicking the stash object to reopen it — are tested but have seen
-less real use.
+the stash, reopening it with F, and opening the inventory with I — are tested
+but have seen less real use.

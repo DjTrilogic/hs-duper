@@ -38,6 +38,10 @@ VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
 SC_RETURN = 0x1C
 SC_ESCAPE = 0x01
+SC_F = 0x21
+SC_I = 0x17
+VK_F = 0x46
+VK_I = 0x49
 
 #: How CTRL is put on the wire. Real hardware delivers both a virtual-key code
 #: and a scancode in the same event; "both" reproduces that, and is the default
@@ -240,6 +244,16 @@ def press_enter() -> None:
 
 def press_escape() -> None:
     tap(SC_ESCAPE, VK_ESCAPE)
+
+
+def press_interact() -> None:
+    """Press the game's F interaction key."""
+    tap(SC_F, VK_F)
+
+
+def press_inventory() -> None:
+    """Press the game's I inventory key."""
+    tap(SC_I, VK_I)
 
 
 def type_text(text: str, per_char_ms: int = 12) -> None:

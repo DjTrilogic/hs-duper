@@ -35,10 +35,6 @@ DEFAULT_TIMING = {
     # Between the steps of sending a chat line: opening it, picking the tab,
     # focusing the field, sending.
     "chat_step_ms": 180,
-    # Extra pause before the sender's own withdraw. The stash reopen already
-    # sits between announcing and withdrawing and takes time of its own, so
-    # this starts at nothing and is the dial for the overlap.
-    "after_ready_ms": 0,
     # After clicking a panel open or shut, before believing the anchor.
     "panel_settle_ms": 450,
 }

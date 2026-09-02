@@ -1,5 +1,6 @@
 """hs-duper - bulk item transfer between the inventory and the Blood Pact stash."""
 
+import secrets
 import sys
 import threading
 import time
@@ -488,7 +489,7 @@ def cmd_link(args: list[str]) -> int:
     print()
     print("  Give the receiver the SAME topic:  python -m hsduper link <topic>")
     print()
-    print("  What travels over it is one short token and nothing else - no account,")
+    print("  What travels over it is a few short tokens and nothing else - no account,")
     print("  no character, nothing about the game. Anyone who knows the topic can read")
     print("  and publish to it, which is why it is a long random string. Change it with")
     print("  `link` again at any time; both sides have to match.")
@@ -589,6 +590,11 @@ def cmd_pact(args: list[str]) -> int:
         link = notify.from_config(cfg)
         token = cfg.data.get("ready_token", "hsd-ready")
 
+        # Ignore cached signals from an earlier invocation. The receiver is
+        # intentionally started first, before the sender publishes this run's
+        # first DEPOSITED message.
+        link.poll()
+
         def nothing_happened(what):
             def act(*_):
                 print(f"    [dry run] would {what}")
@@ -599,23 +605,49 @@ def cmd_pact(args: list[str]) -> int:
             return nothing_happened(f"drain {grid.name}") if dry else (
                 lambda: transfer(grid, cfg))
 
+        def wait_signal(expected):
+            if dry:
+                print(f"    [dry run] would wait for {expected!r}")
+                return expected
+            return link.wait_for(lambda text: text == expected, timeout=600.0)
+
+        def wait_deposited():
+            return link.wait_for(
+                lambda text: roles.CycleSignals.from_deposited(token, text) is not None,
+                timeout=600.0,
+            )
+
+        def count_stash_items():
+            if dry:
+                return 1
+            park(cfg)
+            return int(stash.occupied().sum())
+
+        announce = (
+            (lambda text: print(f"    [dry run] would publish {text!r}"))
+            if dry else link.announce
+        )
+
         if role == "sender":
             roles.run_sender(
-                cfg, cycles,
+                cfg, cycles, session=secrets.token_urlsafe(8),
                 deposit=move(inventory),
-                announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
-                if dry else link.announce,
+                announce=announce,
+                wait_signal=wait_signal,
                 withdraw=move(stash),
             )
         else:
             roles.run_receiver(
                 cfg, cycles,
-                wait_ready=lambda: link.wait_for(lambda t: token in t, timeout=600.0),
+                wait_deposited=wait_deposited,
+                announce=announce,
+                open_stash=(lambda: True) if dry else lambda: panels.open_stash(cfg),
+                stash_item_count=count_stash_items,
                 withdraw=move(stash),
                 close_stash=(lambda: True) if dry else lambda: panels.close_stash(cfg),
+                open_inventory=(lambda: True) if dry else lambda: panels.open_inventory(cfg),
                 use_all=nothing_happened("use every item in the inventory")
                 if no_use else lambda: panels.use_all(cfg, inventory),
-                open_stash=(lambda: True) if dry else lambda: panels.open_stash(cfg),
             )
     except (roles.Stopped, PanelClosed, NotFocused, BlankCapture) as exc:
         print(f"  stopped: {exc}")

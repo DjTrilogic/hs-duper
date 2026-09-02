@@ -1,13 +1,13 @@
 """Signalling between the two machines, out of band.
 
 The sender must never close the stash, and the in-game chat cannot be reached
-while it is open - so the go signal cannot travel through the game at all. It
-goes over the internet instead, on a pub/sub topic both sides know.
+while it is open - so the cycle signals cannot travel through the game at all.
+They go over the internet instead, on a pub/sub topic both sides know.
 
-What leaves the machine is one short token on a random topic name, and nothing
-else: no account name, no character, nothing about the game. Anyone who knows
-the topic can read and publish to it, which is why the topic is a long random
-string rather than something memorable.
+What leaves the machine is a few short protocol tokens on a random topic name,
+and nothing else: no account name, no character, nothing about the game. Anyone
+who knows the topic can read and publish to it, which is why the topic is a long
+random string rather than something memorable.
 """
 
 import json

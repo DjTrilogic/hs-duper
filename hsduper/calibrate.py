@@ -158,16 +158,6 @@ def run(parts: list[str]) -> None:
         cfg.data["chat_input_point"] = list(mark("The chat INPUT FIELD."))
         cfg.save()
 
-    if "pact" in wanted:
-        print()
-        print("=== pact ===")
-        print("  Both roles need this: the chat cannot be reached while the stash is")
-        print("  open, so every cycle shuts it and clicks it open again.")
-        print("  ESC closes it, so only reopening needs a position.")
-        print("  Stand where you farm, with the stash CLOSED.")
-        cfg.data["stash_object_point"] = list(mark("The STASH OBJECT in the world."))
-        cfg.save()
-
     if "anchors" in wanted:
         print("\n=== panel anchors ===")
         print("  These are what stops a pass running with a panel closed, which would drop")
