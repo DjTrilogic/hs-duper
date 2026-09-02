@@ -81,6 +81,11 @@ Show the latest session and all-time totals without opening the game:
 .\.venv\Scripts\python.exe -m hsduper stats
 ```
 
+For a visual dashboard, open `stats.html` in a browser and select or drag
+`stats.json` onto the page. If the repository is served over HTTP, the page
+loads `stats.json` automatically. The dashboard has no external dependency and
+does not upload the file anywhere.
+
 `stats.json` is local machine state and is ignored by Git.
 
 ### Testing alone
@@ -282,7 +287,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-121 tests: grid geometry and occupancy against synthetic frames, the transfer
+122 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

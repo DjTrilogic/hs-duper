@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hs-duper · Statistiques</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b12;
+      --panel: rgba(20, 24, 37, .82);
+      --panel-solid: #141825;
+      --line: rgba(255, 255, 255, .09);
+      --text: #f4f6ff;
+      --muted: #989fb3;
+      --accent: #7c6cff;
+      --accent-2: #35d3b4;
+      --warn: #ffb454;
+      --danger: #ff6b81;
+      --radius: 20px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(124, 108, 255, .2), transparent 32rem),
+        radial-gradient(circle at 88% 18%, rgba(53, 211, 180, .12), transparent 28rem),
+        var(--bg);
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      content: "";
+      opacity: .25;
+      background-image: linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, black, transparent 85%);
+    }
+
+    button, input { font: inherit; }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 16px; }
+
+    .mark {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 15px;
+      background: linear-gradient(145deg, var(--accent), #4e3ed4);
+      box-shadow: 0 12px 30px rgba(80, 65, 210, .35);
+      font-weight: 900;
+      letter-spacing: -.06em;
+    }
+
+    h1 { margin: 0; font-size: clamp(1.35rem, 3vw, 2rem); letter-spacing: -.04em; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); font-size: .92rem; }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 0 16px;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 12px;
+      color: var(--text);
+      background: rgba(255, 255, 255, .06);
+      cursor: pointer;
+      transition: transform .18s ease, background .18s ease, border-color .18s ease;
+    }
+
+    .button:hover { transform: translateY(-1px); background: rgba(255, 255, 255, .1); }
+    .button.primary { border-color: transparent; background: var(--accent); font-weight: 750; }
+    .button.primary:hover { background: #8a7cff; }
+    #file-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+    .drop-zone {
+      display: grid;
+      min-height: 250px;
+      padding: 36px;
+      place-items: center;
+      text-align: center;
+      border: 1px dashed rgba(124, 108, 255, .52);
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, rgba(124, 108, 255, .08), rgba(53, 211, 180, .04));
+      transition: border-color .2s ease, background .2s ease, transform .2s ease;
+    }
+
+    .drop-zone.dragging {
+      border-color: var(--accent-2);
+      background: rgba(53, 211, 180, .1);
+      transform: scale(1.006);
+    }
+
+    .drop-icon {
+      display: grid;
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 18px;
+      place-items: center;
+      border-radius: 18px;
+      color: var(--accent-2);
+      background: rgba(53, 211, 180, .1);
+      font-size: 1.7rem;
+    }
+
+    .drop-zone h2 { margin: 0 0 8px; font-size: 1.25rem; }
+    .drop-zone p { max-width: 520px; margin: 0 auto 22px; color: var(--muted); line-height: 1.6; }
+
+    .notice {
+      display: none;
+      margin: 0 0 20px;
+      padding: 13px 16px;
+      border: 1px solid rgba(255, 107, 129, .3);
+      border-radius: 12px;
+      color: #ffc2cb;
+      background: rgba(255, 107, 129, .08);
+    }
+
+    .dashboard[hidden], .drop-zone[hidden] { display: none; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+      color: var(--muted);
+      font-size: .88rem;
+    }
+
+    .file-state { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .file-state span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 14px var(--accent-2); }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .18);
+      backdrop-filter: blur(18px);
+    }
+
+    .metric { min-height: 138px; padding: 20px; }
+    .metric-label { color: var(--muted); font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .metric-value { margin-top: 15px; font-size: clamp(1.8rem, 4vw, 2.7rem); font-weight: 850; letter-spacing: -.06em; }
+    .metric-note { margin-top: 5px; color: var(--muted); font-size: .8rem; }
+    .metric.accent .metric-value { color: var(--accent-2); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .section { padding: 22px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+    .section h2 { margin: 0; font-size: 1rem; letter-spacing: -.015em; }
+    .section-meta { color: var(--muted); font-size: .78rem; }
+
+    .chart {
+      display: flex;
+      height: 210px;
+      align-items: flex-end;
+      gap: 9px;
+      padding-top: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .bar-wrap { display: flex; min-width: 0; height: 100%; flex: 1; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; }
+    .bar-value { color: var(--muted); font-size: .7rem; }
+    .bar {
+      width: min(34px, 78%);
+      min-height: 4px;
+      border-radius: 8px 8px 3px 3px;
+      background: linear-gradient(to top, var(--accent), var(--accent-2));
+      box-shadow: 0 0 18px rgba(124, 108, 255, .2);
+      transition: height .45s cubic-bezier(.2, .8, .2, 1);
+    }
+    .bar-label { overflow: hidden; max-width: 100%; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+
+    .latest-list { display: grid; gap: 14px; }
+    .latest-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .latest-key { color: var(--muted); font-size: .82rem; }
+    .latest-value { text-align: right; font-size: .9rem; font-weight: 700; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 0 9px;
+      border-radius: 999px;
+      color: var(--accent-2);
+      background: rgba(53, 211, 180, .1);
+      font-size: .72rem;
+      font-weight: 750;
+    }
+    .status.stopped, .status.aborted, .status.interrupted { color: var(--warn); background: rgba(255, 180, 84, .1); }
+    .status.running { color: #b9b0ff; background: rgba(124, 108, 255, .12); }
+
+    .sessions { padding: 8px; }
+    details { border-bottom: 1px solid var(--line); }
+    details:last-child { border-bottom: 0; }
+    summary {
+      display: grid;
+      grid-template-columns: minmax(190px, 1.5fr) repeat(4, minmax(72px, .55fr)) 24px;
+      gap: 12px;
+      align-items: center;
+      padding: 17px 14px;
+      list-style: none;
+      cursor: pointer;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "⌄"; color: var(--muted); transition: transform .2s ease; }
+    details[open] summary::after { transform: rotate(180deg); }
+    .session-title { min-width: 0; }
+    .session-date { margin-bottom: 6px; font-size: .88rem; font-weight: 700; }
+    .session-id { overflow: hidden; color: var(--muted); font-family: ui-monospace, monospace; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+    .session-stat { text-align: right; }
+    .session-stat strong { display: block; font-size: .95rem; }
+    .session-stat span { color: var(--muted); font-size: .68rem; }
+
+    .cycle-table { width: calc(100% - 28px); margin: 0 14px 16px; border-collapse: collapse; font-size: .8rem; }
+    .cycle-table th, .cycle-table td { padding: 10px 8px; text-align: right; border-top: 1px solid var(--line); }
+    .cycle-table th:first-child, .cycle-table td:first-child { text-align: left; }
+    .cycle-table th { color: var(--muted); font-weight: 600; }
+
+    .empty-sessions { padding: 32px; color: var(--muted); text-align: center; }
+
+    footer { margin-top: 20px; color: #6f7588; font-size: .75rem; text-align: center; }
+
+    @media (max-width: 850px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .grid { grid-template-columns: 1fr; }
+      summary { grid-template-columns: 1fr repeat(2, 70px) 20px; }
+      summary .session-stat:nth-of-type(3), summary .session-stat:nth-of-type(4) { display: none; }
+    }
+
+    @media (max-width: 540px) {
+      .shell { width: min(100% - 20px, 1180px); padding-top: 24px; }
+      header { align-items: flex-start; flex-direction: column; }
+      .metrics { grid-template-columns: 1fr 1fr; gap: 9px; }
+      .metric { min-height: 118px; padding: 16px; }
+      .section { padding: 16px; }
+      .drop-zone { min-height: 220px; padding: 22px; }
+      summary { grid-template-columns: 1fr 64px 20px; }
+      summary .session-stat:not(:first-of-type) { display: none; }
+      .cycle-table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">
+        <div class="mark" aria-hidden="true">HS</div>
+        <div>
+          <h1>Statistiques d’ouverture</h1>
+          <p class="subtitle">Sessions receiver · hs-duper</p>
+        </div>
+      </div>
+      <label class="button" for="file-input">Changer de fichier</label>
+    </header>
+
+    <input id="file-input" type="file" accept="application/json,.json">
+    <p id="notice" class="notice" role="alert"></p>
+
+    <section id="drop-zone" class="drop-zone">
+      <div>
+        <div class="drop-icon" aria-hidden="true">↥</div>
+        <h2>Ouvrir les statistiques</h2>
+        <p>Dépose <strong>stats.json</strong> ici ou sélectionne-le manuellement. Le fichier est lu localement et aucune donnée ne quitte ton navigateur.</p>
+        <label class="button primary" for="file-input">Choisir stats.json</label>
+      </div>
+    </section>
+
+    <section id="dashboard" class="dashboard" hidden>
+      <div class="toolbar">
+        <div class="file-state"><span class="dot"></span><span id="file-name">stats.json</span></div>
+        <span id="loaded-at"></span>
+      </div>
+
+      <div class="metrics">
+        <article class="card metric accent">
+          <div class="metric-label">Objets confirmés</div>
+          <div id="total-opened" class="metric-value">0</div>
+          <div class="metric-note">cumul de toutes les sessions</div>
+        </article>
+        <article class="card metric">
+          <div class="metric-label">Cycles terminés</div>
+          <div id="total-cycles" class="metric-value">0</div>
+          <div id="cycle-rate" class="metric-note">0 % de réussite</div>
+        </article>
+        <article class="card metric">
+          <div class="metric-label">Sessions</div>
+          <div id="total-sessions" class="metric-value">0</div>
+          <div id="session-note" class="metric-note">aucun arrêt</div>
+        </article>
+        <article class="card metric">
+          <div class="metric-label">Passages RMB</div>
+          <div id="total-passes" class="metric-value">0</div>
+          <div id="pass-average" class="metric-note">0 par cycle</div>
+        </article>
+      </div>
+
+      <div class="grid">
+        <article class="card section">
+          <div class="section-head">
+            <h2>Ouvertures par session</h2>
+            <span id="chart-meta" class="section-meta"></span>
+          </div>
+          <div id="chart" class="chart" aria-label="Graphique des ouvertures par session"></div>
+        </article>
+
+        <article class="card section">
+          <div class="section-head">
+            <h2>Dernière session</h2>
+            <span id="latest-status" class="status">—</span>
+          </div>
+          <div class="latest-list">
+            <div class="latest-row"><span class="latest-key">Début</span><span id="latest-start" class="latest-value">—</span></div>
+            <div class="latest-row"><span class="latest-key">Objets confirmés</span><span id="latest-opened" class="latest-value">0</span></div>
+            <div class="latest-row"><span class="latest-key">Cycles terminés</span><span id="latest-cycles" class="latest-value">0</span></div>
+            <div class="latest-row"><span class="latest-key">Encore visibles</span><span id="latest-remaining" class="latest-value">0</span></div>
+          </div>
+        </article>
+      </div>
+
+      <article class="card section">
+        <div class="section-head">
+          <h2>Historique des sessions</h2>
+          <span id="history-meta" class="section-meta"></span>
+        </div>
+        <div id="sessions" class="sessions"></div>
+      </article>
+    </section>
+
+    <footer>hs-duper · lecture locale de stats.json</footer>
+  </main>
+
+  <script>
+    const fileInput = document.querySelector('#file-input');
+    const dropZone = document.querySelector('#drop-zone');
+    const dashboard = document.querySelector('#dashboard');
+    const notice = document.querySelector('#notice');
+    const number = new Intl.NumberFormat('fr-FR');
+    const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+
+    const labels = {
+      completed: 'Terminée', stopped: 'Arrêtée', aborted: 'Annulée',
+      interrupted: 'Interrompue', running: 'En cours', incomplete: 'Incomplète'
+    };
+
+    function text(id, value) {
+      document.querySelector(`#${id}`).textContent = value;
+    }
+
+    function safeNumber(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function formattedDate(value) {
+      if (!value) return '—';
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.valueOf()) ? value : date.format(parsed);
+    }
+
+    function statusBadge(value) {
+      const badge = document.createElement('span');
+      badge.className = `status ${value || ''}`;
+      badge.textContent = labels[value] || value || 'Inconnue';
+      return badge;
+    }
+
+    function metricCell(value, label) {
+      const cell = document.createElement('div');
+      cell.className = 'session-stat';
+      const strong = document.createElement('strong');
+      strong.textContent = number.format(safeNumber(value));
+      const caption = document.createElement('span');
+      caption.textContent = label;
+      cell.append(strong, caption);
+      return cell;
+    }
+
+    function renderChart(sessions) {
+      const chart = document.querySelector('#chart');
+      chart.replaceChildren();
+      const recent = sessions.slice(-12);
+      const maximum = Math.max(1, ...recent.map(item => safeNumber(item.summary?.items_confirmed_opened)));
+      text('chart-meta', `${recent.length} dernière${recent.length > 1 ? 's' : ''}`);
+
+      if (!recent.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-sessions';
+        empty.textContent = 'Aucune session enregistrée';
+        chart.append(empty);
+        return;
+      }
+
+      recent.forEach((session, index) => {
+        const opened = safeNumber(session.summary?.items_confirmed_opened);
+        const wrap = document.createElement('div');
+        wrap.className = 'bar-wrap';
+        wrap.title = `${opened} objets confirmés`;
+        const value = document.createElement('span');
+        value.className = 'bar-value';
+        value.textContent = number.format(opened);
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = `${Math.max(3, opened / maximum * 155)}px`;
+        const label = document.createElement('span');
+        label.className = 'bar-label';
+        label.textContent = `S${sessions.length - recent.length + index + 1}`;
+        wrap.append(value, bar, label);
+        chart.append(wrap);
+      });
+    }
+
+    function renderCycles(container, cycles) {
+      if (!cycles.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-sessions';
+        empty.textContent = 'Aucun cycle d’ouverture enregistré';
+        container.append(empty);
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'cycle-table';
+      const head = table.createTHead().insertRow();
+      ['Cycle', 'État', 'Retirés', 'Confirmés', 'Passages', 'Restants'].forEach(label => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        head.append(th);
+      });
+      const body = table.createTBody();
+      cycles.forEach(cycle => {
+        const row = body.insertRow();
+        const values = [
+          `#${safeNumber(cycle.number)}`, labels[cycle.status] || cycle.status,
+          cycle.withdrawn, cycle.confirmed_opened, cycle.opening_passes, cycle.remaining
+        ];
+        values.forEach(value => {
+          const cell = row.insertCell();
+          cell.textContent = typeof value === 'number' ? number.format(value) : value;
+        });
+      });
+      container.append(table);
+    }
+
+    function renderSessions(sessions) {
+      const root = document.querySelector('#sessions');
+      root.replaceChildren();
+      text('history-meta', `${sessions.length} session${sessions.length > 1 ? 's' : ''}`);
+      if (!sessions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-sessions';
+        empty.textContent = 'Les prochaines sessions receiver apparaîtront ici.';
+        root.append(empty);
+        return;
+      }
+
+      [...sessions].reverse().forEach((session, index) => {
+        const summaryData = session.summary || {};
+        const details = document.createElement('details');
+        if (index === 0) details.open = true;
+        const summary = document.createElement('summary');
+        const title = document.createElement('div');
+        title.className = 'session-title';
+        const sessionDate = document.createElement('div');
+        sessionDate.className = 'session-date';
+        sessionDate.textContent = formattedDate(session.started_at);
+        const id = document.createElement('div');
+        id.className = 'session-id';
+        id.textContent = session.id || 'session sans identifiant';
+        title.append(sessionDate, id);
+        summary.append(
+          title,
+          metricCell(summaryData.items_confirmed_opened, 'confirmés'),
+          metricCell(summaryData.cycles_completed, 'cycles'),
+          metricCell(summaryData.opening_passes, 'passages'),
+          metricCell(summaryData.items_remaining, 'restants')
+        );
+        details.append(summary);
+        const state = document.createElement('div');
+        state.style.cssText = 'padding: 0 14px 8px';
+        state.append(statusBadge(session.status));
+        if (session.stop_reason) {
+          const reason = document.createElement('span');
+          reason.style.cssText = 'margin-left:10px;color:var(--muted);font-size:.75rem';
+          reason.textContent = session.stop_reason;
+          state.append(reason);
+        }
+        details.append(state);
+        renderCycles(details, Array.isArray(session.cycles) ? session.cycles : []);
+        root.append(details);
+      });
+    }
+
+    function render(data, filename = 'stats.json') {
+      if (!data || !Array.isArray(data.sessions)) {
+        throw new Error('Ce fichier ne contient pas une liste de sessions valide.');
+      }
+      const totals = data.totals || {};
+      const sessions = data.sessions;
+      const complete = safeNumber(totals.cycles_completed);
+      const incomplete = safeNumber(totals.cycles_incomplete);
+      const allCycles = complete + incomplete;
+      const passes = safeNumber(totals.opening_passes);
+
+      text('file-name', filename);
+      text('loaded-at', `Chargé à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`);
+      text('total-opened', number.format(safeNumber(totals.items_confirmed_opened)));
+      text('total-cycles', number.format(complete));
+      text('cycle-rate', `${allCycles ? Math.round(complete / allCycles * 100) : 0} % de réussite`);
+      text('total-sessions', number.format(safeNumber(totals.sessions ?? sessions.length)));
+      text('session-note', `${number.format(safeNumber(totals.sessions_stopped))} arrêtée(s)`);
+      text('total-passes', number.format(passes));
+      text('pass-average', `${complete ? (passes / complete).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : 0} par cycle`);
+
+      const latest = sessions.at(-1);
+      const latestStatus = document.querySelector('#latest-status');
+      latestStatus.className = `status ${latest?.status || ''}`;
+      latestStatus.textContent = latest ? (labels[latest.status] || latest.status) : 'Aucune';
+      text('latest-start', latest ? formattedDate(latest.started_at) : '—');
+      text('latest-opened', number.format(safeNumber(latest?.summary?.items_confirmed_opened)));
+      text('latest-cycles', number.format(safeNumber(latest?.summary?.cycles_completed)));
+      text('latest-remaining', number.format(safeNumber(latest?.summary?.items_remaining)));
+
+      renderChart(sessions);
+      renderSessions(sessions);
+      notice.style.display = 'none';
+      dropZone.hidden = true;
+      dashboard.hidden = false;
+    }
+
+    async function loadText(raw, filename) {
+      try {
+        render(JSON.parse(raw), filename);
+      } catch (error) {
+        notice.textContent = `Impossible de lire les statistiques : ${error.message}`;
+        notice.style.display = 'block';
+      }
+    }
+
+    fileInput.addEventListener('change', async event => {
+      const file = event.target.files?.[0];
+      if (file) await loadText(await file.text(), file.name);
+      event.target.value = '';
+    });
+
+    ['dragenter', 'dragover'].forEach(name => dropZone.addEventListener(name, event => {
+      event.preventDefault();
+      dropZone.classList.add('dragging');
+    }));
+    ['dragleave', 'drop'].forEach(name => dropZone.addEventListener(name, event => {
+      event.preventDefault();
+      dropZone.classList.remove('dragging');
+    }));
+    dropZone.addEventListener('drop', async event => {
+      const file = event.dataTransfer?.files?.[0];
+      if (file) await loadText(await file.text(), file.name);
+    });
+
+    if (location.protocol !== 'file:') {
+      fetch(`stats.json?t=${Date.now()}`, { cache: 'no-store' })
+        .then(response => response.ok ? response.text() : Promise.reject(new Error(response.statusText)))
+        .then(raw => loadText(raw, 'stats.json'))
+        .catch(() => {});
+    }
+  </script>
+</body>
+</html>
