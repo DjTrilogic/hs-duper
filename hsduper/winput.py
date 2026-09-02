@@ -96,6 +96,8 @@ class INPUT(ctypes.Structure):
 
 user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
 user32.SendInput.restype = wintypes.UINT
+user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+user32.GetAsyncKeyState.restype = ctypes.c_short
 
 
 def set_dpi_aware() -> None:
@@ -148,6 +150,43 @@ def _ctrl(up: bool, mode: str = "both") -> INPUT:
     return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(VK_LCONTROL, SC_LCONTROL, up_flag, 0, 0))
 
 
+def _ctrl_inputs(up: bool, mode: str = "both") -> tuple[INPUT, ...]:
+    """Build CTRL events for the requested delivery path.
+
+    Without ``KEYEVENTF_SCANCODE``, Windows uses ``wVk`` and ignores ``wScan``.
+    The old ``both`` event populated both fields but therefore behaved like
+    VK-only input. Two events make the default honest: virtual-key and raw
+    scancode consumers both receive the transition.
+    """
+    if mode == "both":
+        return (_ctrl(up, "vk"), _ctrl(up, "scancode"))
+    return (_ctrl(up, mode),)
+
+
+def _send_ctrl(up: bool, mode: str = "both") -> None:
+    _send(*_ctrl_inputs(up, mode))
+
+
+def ctrl_is_down() -> bool:
+    """Whether Windows currently reports left CTRL as held."""
+    return bool(user32.GetAsyncKeyState(VK_LCONTROL) & 0x8000)
+
+
+def ensure_ctrl_down(
+    settle_ms: int = 45, mode: str = "both", attempts: int = 3
+) -> None:
+    """Reassert CTRL and refuse to click unless Windows confirms its state."""
+    attempts = max(int(attempts), 1)
+    for _ in range(attempts):
+        _send_ctrl(up=False, mode=mode)
+        time.sleep(settle_ms / 1000)
+        if ctrl_is_down():
+            return
+    raise RuntimeError(
+        f"CTRL did not register after {attempts} attempt(s); refusing to send a plain click"
+    )
+
+
 def _unicode_key(char: str, up: bool = False) -> INPUT:
     flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if up else 0)
     return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, ord(char), flags, 0, 0))
@@ -193,14 +232,13 @@ def _modified_click(
     otherwise leave CTRL held down for the whole desktop.
     """
     try:
-        _send(_ctrl(up=False, mode=mode))
-        time.sleep(settle_ms / 1000)
+        ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
         _send(_mouse(down))
         time.sleep(hold_ms / 1000)
         _send(_mouse(up))
         time.sleep(settle_ms / 1000)
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)
 
 
 def ctrl_right_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both") -> None:
@@ -224,12 +262,11 @@ def hold_ctrl(settle_ms: int = 45, mode: str = "both"):
     exception cannot leave CTRL held on the desktop.
     """
     try:
-        _send(_ctrl(up=False, mode=mode))
-        time.sleep(settle_ms / 1000)
+        ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
         yield
         time.sleep(settle_ms / 1000)
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)
 
 
 def _plain_click(down: int, up: int, hold_ms: int = 70) -> None:
@@ -329,12 +366,12 @@ def batched_ctrl_right_click(x: int, y: int, mode: str = "both") -> None:
     try:
         _send(
             _abs_move_input(x, y),
-            _ctrl(up=False, mode=mode),
+            *_ctrl_inputs(up=False, mode=mode),
             _mouse(MOUSEEVENTF_RIGHTDOWN),
             _mouse(MOUSEEVENTF_RIGHTUP),
         )
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)
 
 
 def ctrl_right_click_at(
@@ -351,18 +388,18 @@ def ctrl_right_click_at(
     """
     try:
         if ctrl_first:
-            _send(_ctrl(up=False, mode=mode))
+            _send_ctrl(up=False, mode=mode)
             time.sleep(settle_ms / 1000)
             _send(_abs_move_input(x, y))
             time.sleep(settle_ms / 1000)
         else:
             _send(_abs_move_input(x, y))
             time.sleep(settle_ms / 1000)
-            _send(_ctrl(up=False, mode=mode))
+            _send_ctrl(up=False, mode=mode)
             time.sleep(settle_ms / 1000)
         _send(_mouse(MOUSEEVENTF_RIGHTDOWN))
         time.sleep(hold_ms / 1000)
         _send(_mouse(MOUSEEVENTF_RIGHTUP))
         time.sleep(settle_ms / 1000)
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)

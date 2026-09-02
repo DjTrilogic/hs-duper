@@ -154,6 +154,12 @@ def transfer(
                 x, y = source.cell_center(row, col)
                 winput.move_to(x, y)
                 time.sleep(move_settle)
+                if hold_modifier:
+                    # Keep the pass-wide modifier, but also refresh its key-down
+                    # event and verify Windows' actual state immediately before
+                    # every click. Missing CTRL is dangerous: plain LMB picks an
+                    # item up and leaves it attached to the cursor.
+                    winput.ensure_ctrl_down(settle_ms=settle, mode=mode)
                 click()
                 commanded = (x, y)
                 time.sleep(click_delay + random.uniform(0, jitter))

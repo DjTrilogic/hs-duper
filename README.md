@@ -199,6 +199,10 @@ at your own instance instead.
 - CTRL is held once for the whole transfer pass, like the physical gesture,
   instead of being toggled for every slot. It is released in a `finally`, so an
   abort mid-pass cannot leave it stuck.
+- Before every transfer click, CTRL is reasserted through both the virtual-key
+  and hardware-scancode paths and its actual Windows state is checked. If it is
+  not confirmed as held, hs-duper refuses to send what would become a plain
+  item-pick-up click.
 - If a missed modifier leaves an item on the cursor, the first Escape returns
   it to the stash. hs-duper detects that the panel stayed open, rescans, retries
   the withdrawal, and only then tries to close it again.

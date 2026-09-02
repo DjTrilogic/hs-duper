@@ -63,7 +63,8 @@ def _withdraw_and_close(cfg: Config, withdraw, close_stash, log=print) -> int:
 
     for attempt in range(1, attempts + 1):
         control.check()
-        log("  closing the stash" if attempt == 1 else "  closing the stash again")
+        label = "closing the stash" if attempt == 1 else "closing the stash again"
+        log(f"  {label} (attempt {attempt}/{attempts})")
         if close_stash():
             _moved(report, "the withdraw")
             return max(withdrawn, report.moved)

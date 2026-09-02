@@ -107,6 +107,11 @@ def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
     monkeypatch.setattr(winput, "hold_ctrl", held_ctrl)
     monkeypatch.setattr(
         winput,
+        "ensure_ctrl_down",
+        lambda *, settle_ms, mode: events.append(("ctrl-refresh", settle_ms, mode)),
+    )
+    monkeypatch.setattr(
+        winput,
         "left_click",
         lambda hold_ms: events.append(("left", fake_mouse["pos"], hold_ms)),
     )
@@ -125,6 +130,7 @@ def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
     assert events[-1] == ("ctrl-up", 45, "both")
     clicks = [event for event in events if event[0] == "left"]
     assert len(clicks) == 4
+    assert sum(event[0] == "ctrl-refresh" for event in events) == 4
     assert not any(event[0] == "ctrl-down" for event in events[1:-1])
 
 
@@ -211,6 +217,7 @@ def test_ctrl_is_released_even_when_the_click_raises(monkeypatch):
                     raise RuntimeError("boom")
 
     monkeypatch.setattr(winput, "_send", fake_send)
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: True)
     with pytest.raises(RuntimeError):
         winput.ctrl_right_click()
     assert ("key", winput.SC_LCONTROL, True) in sent, "CTRL was left down"
@@ -224,13 +231,36 @@ def test_held_ctrl_is_released_when_a_pass_raises(monkeypatch):
             sent.append(bool(item.ki.dwFlags & winput.KEYEVENTF_KEYUP))
 
     monkeypatch.setattr(winput, "_send", fake_send)
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: True)
     monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
 
     with pytest.raises(RuntimeError, match="boom"):
         with winput.hold_ctrl():
             raise RuntimeError("boom")
 
-    assert sent == [False, True]
+    assert sent == [False, False, True, True]
+
+
+def test_both_ctrl_mode_really_sends_vk_and_scancode():
+    inputs = winput._ctrl_inputs(up=False, mode="both")
+
+    assert len(inputs) == 2
+    assert inputs[0].ki.wVk == winput.VK_LCONTROL
+    assert not (inputs[0].ki.dwFlags & winput.KEYEVENTF_SCANCODE)
+    assert inputs[1].ki.wScan == winput.SC_LCONTROL
+    assert inputs[1].ki.dwFlags & winput.KEYEVENTF_SCANCODE
+
+
+def test_ctrl_must_be_confirmed_before_a_click_can_be_sent(monkeypatch):
+    sends = []
+    monkeypatch.setattr(winput, "_send_ctrl", lambda up, mode: sends.append((up, mode)))
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: False)
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="refusing to send a plain click"):
+        winput.ensure_ctrl_down(settle_ms=55, mode="both")
+
+    assert sends == [(False, "both")] * 3
 
 
 def test_stops_when_the_game_stops_being_the_focused_window(cfg, click, fake_mouse, monkeypatch):
