@@ -41,6 +41,9 @@ DEFAULT_TIMING = {
     "after_ready_ms": 0,
     # After clicking a panel open or shut, before believing the anchor.
     "panel_settle_ms": 450,
+    # How long each side waits on the other: the sender for the confirmation,
+    # the receiver for the items to show up in the stash.
+    "confirm_timeout_ms": 60000,
 }
 
 #: Phase 2. The room is a specific pact's id, not a fixed channel number, so it
@@ -48,6 +51,10 @@ DEFAULT_TIMING = {
 DEFAULT_PHASE2 = {
     "blood_pact_room": None,
     "ready_token": "hsd-ready",
+    # The receiver's reply, sent once it can see the items in the stash. The
+    # two tokens differ so neither side can be answered by its own echo - the
+    # relay hands every subscriber everything, including what it published.
+    "seen_token": "hsd-seen",
     "own_name": None,
 }
 

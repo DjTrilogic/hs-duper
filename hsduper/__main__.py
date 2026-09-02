@@ -17,7 +17,8 @@ import numpy as np  # noqa: E402
 from . import calibrate, capture, chat, control, doctor, notify, panels, roles, signal  # noqa: E402
 from .config import GRID_NAMES, Config  # noqa: E402
 from .grid import BlankCapture  # noqa: E402
-from .transfer import NotFocused, PanelClosed, Report, Result, park, transfer  # noqa: E402
+from .transfer import (NotFocused, PanelClosed, Report, Result, park, transfer,  # noqa: E402
+                       wait_until_occupied)  # noqa: E402
 
 USAGE = """hs-duper
 
@@ -588,6 +589,8 @@ def cmd_pact(args: list[str]) -> int:
     try:
         link = notify.from_config(cfg)
         token = cfg.data.get("ready_token", "hsd-ready")
+        seen = cfg.data.get("seen_token", "hsd-seen")
+        confirm_wait = cfg.timing("confirm_timeout_ms") / 1000
 
         def nothing_happened(what):
             def act(*_):
@@ -605,12 +608,18 @@ def cmd_pact(args: list[str]) -> int:
                 deposit=move(inventory),
                 announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
                 if dry else link.announce,
+                wait_seen=(lambda: True) if dry else
+                (lambda: link.wait_for(lambda t: seen in t, timeout=confirm_wait) is not None),
                 withdraw=move(stash),
             )
         else:
             roles.run_receiver(
                 cfg, cycles,
                 wait_ready=lambda: link.wait_for(lambda t: token in t, timeout=600.0),
+                see_items=(lambda: True) if dry else
+                (lambda: wait_until_occupied(stash, cfg, timeout=confirm_wait) > 0),
+                confirm=(lambda t: print(f"    [dry run] would publish {t!r}"))
+                if dry else link.announce,
                 withdraw=move(stash),
                 close_stash=(lambda: True) if dry else lambda: panels.close_stash(cfg),
                 use_all=nothing_happened("use every item in the inventory")

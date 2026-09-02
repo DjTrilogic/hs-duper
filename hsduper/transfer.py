@@ -159,3 +159,22 @@ def transfer(
             return Report(Result.STALLED, moved, attempt, remaining)
 
     return Report(Result.MAX_PASSES, moved, max_passes, remaining)
+
+
+def wait_until_occupied(grid, cfg: Config, timeout: float = 60.0,
+                        poll_s: float = 0.25, log=print) -> int:
+    """Block until the grid actually shows items, and say how many.
+
+    Looking at the screen is a stronger claim than a message saying "ready":
+    it is the difference between the other side believing the items arrived and
+    this side having seen them.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        control.check()
+        count = int(grid.occupied().sum())
+        if count:
+            log(f"  {count} item(s) visible in {grid.name}")
+            return count
+        time.sleep(poll_s)
+    return 0

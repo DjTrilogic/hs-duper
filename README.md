@@ -16,12 +16,27 @@ One cycle, with both machines running hs-duper:
 | --- | --- | --- |
 | 1 | deposits the inventory into the stash | waiting |
 | 2 | publishes the go signal | receives it |
-| 3 | withdraws the stash back | withdraws the same items |
-| 4 | | closes the stash, uses the items, reopens it |
+| 3 | waiting for confirmation | watches the stash until the items are visible |
+| 4 | | publishes the confirmation |
+| 5 | withdraws the stash back | withdraws the same items |
+| 6 | | closes the stash, uses the items, reopens it |
 
-The signal is published between the two transfers on purpose: the receiver
-starts pulling the moment the items land, so its work overlaps the sender's
-withdraw instead of queueing behind it.
+Steps 3 and 4 are a handshake, and they matter. Without them the sender
+announces and withdraws immediately, on the assumption that the receiver got
+there - and when it had not, the items simply come back and the cycle is
+silently wasted.
+
+The receiver confirms by **looking at its own screen**: it watches the stash
+grid until the items actually appear. So the reply the sender waits for is
+evidence that they arrived, not merely that a message was delivered. If they
+never appear, it does not confirm.
+
+The two tokens differ (`ready_token`, `seen_token`) because the relay hands
+every subscriber everything, including its own publishes - with one token each
+side would answer itself.
+
+From step 5 the two sides run at once: the receiver is withdrawing and using
+while the sender withdraws.
 
 **The signal does not travel through the game.** The sender must never close the
 stash, and the in-game chat cannot be reached while it is open — so the go
@@ -181,6 +196,8 @@ at your own instance instead.
 | | |
 | --- | --- |
 | `timing.after_ready_ms` | extra pause before the sender's own withdraw — the overlap dial |
+| `timing.confirm_timeout_ms` | how long each side waits on the other before giving up |
+| `seen_token` | the receiver's confirmation text |
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
@@ -199,6 +216,8 @@ at your own instance instead.
 | **cursor moves, nothing happens** | `hover` tests whether the game sees the cursor at all; `click sweep` tries each button and reports which lands; `doctor` reports focus and privilege |
 | **run refuses to start** | an anchor is missing or a panel is closed. It is refusing on purpose — see Safety |
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
+| **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
+| **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
 
 ---
@@ -224,7 +243,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-88 tests: grid geometry and occupancy against synthetic frames, the transfer
+96 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

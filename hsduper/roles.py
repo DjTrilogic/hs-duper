@@ -42,16 +42,15 @@ def _moved(report: Report, what: str) -> int:
     return report.moved
 
 
-def run_sender(cfg: Config, cycles: int, *, deposit, announce, withdraw, log=print):
-    """deposit -> announce -> withdraw, with the stash open throughout.
+def run_sender(cfg: Config, cycles: int, *, deposit, announce, wait_seen, withdraw,
+               log=print):
+    """deposit -> announce -> wait for the receiver -> withdraw.
 
-    Announcing sits between the two transfers on purpose: the receiver can
-    start pulling the moment the items are in the stash, so its work overlaps
-    the sender's own withdraw instead of queueing behind it.
-
-    `announce` is just a callable. The sender must never close the stash, which
-    rules out the in-game chat - so what actually carries the signal is the
-    caller's business, not this loop's.
+    The wait is the point. Announcing and withdrawing straight away assumes the
+    receiver got there, and when it did not the items simply come back and the
+    cycle was wasted. The receiver replies only once it can see the items in
+    the stash on its own screen, so the reply means they really arrived rather
+    than that a message was delivered.
     """
     token = cfg.data.get("ready_token", "hsd-ready")
     gap = cfg.timing("after_ready_ms") / 1000
@@ -65,12 +64,28 @@ def run_sender(cfg: Config, cycles: int, *, deposit, announce, withdraw, log=pri
         control.check()
         log(f"  announcing {token!r}")
         announce(token)
+
+        control.check()
+        log("  waiting for the receiver to confirm it can see them")
+        if not wait_seen():
+            raise Stopped(
+                "the receiver never confirmed. The items are in the stash - it is safe "
+                "to withdraw them by hand, but the cycle did not happen."
+            )
+        log("  confirmed")
         if gap:
             time.sleep(gap)
 
         control.check()
         log("  withdrawing")
-        withdrawn = _moved(withdraw(), "the withdraw")
+        try:
+            withdrawn = _moved(withdraw(), "the withdraw")
+        except Stopped as exc:
+            raise Stopped(
+                "the stash was empty when the sender withdrew - the receiver got there "
+                "first and took everything. Nothing is lost, but this cycle produced "
+                f"nothing. ({exc})"
+            ) from exc
 
         cycle = Cycle(n, deposited, withdrawn)
         log(f"  {cycle}")
@@ -78,16 +93,18 @@ def run_sender(cfg: Config, cycles: int, *, deposit, announce, withdraw, log=pri
     return done
 
 
-def run_receiver(cfg: Config, cycles: int, *, wait_ready, withdraw, close_stash,
-                 use_all, open_stash, log=print):
-    """wait for the sender -> withdraw -> shut the stash -> use -> reopen.
+def run_receiver(cfg: Config, cycles: int, *, wait_ready, see_items, confirm,
+                 withdraw, close_stash, use_all, open_stash, log=print):
+    """wait -> see the items -> confirm -> withdraw -> shut, use, reopen.
 
-    Reopening is the step that can leave things wedged: it is a click on a
-    world object, so if the character has drifted the stash does not come back
-    and the next cycle has nowhere to take items from. That is why a failure to
-    reopen stops the run rather than pressing on.
+    `see_items` is what makes the confirmation worth anything: it watches the
+    stash until the items are actually on screen, so the reply the sender waits
+    for is evidence rather than an assumption. Nothing is confirmed if they
+    never appear.
     """
+    seen_token = cfg.data.get("seen_token", "hsd-seen")
     done = []
+
     for n in range(1, cycles + 1):
         control.check()
         log(f"[cycle {n}/{cycles}] waiting for the sender")
@@ -95,6 +112,18 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, withdraw, close_stash,
         if event is None:
             raise Stopped("the sender never announced - nothing to do")
         log(f"  heard {event}")
+
+        control.check()
+        log("  watching the stash for the items")
+        if not see_items():
+            raise Stopped(
+                "the items never appeared in the stash. Not confirming, because the "
+                "sender would withdraw on the strength of it."
+            )
+
+        control.check()
+        log(f"  confirming with {seen_token!r}")
+        confirm(seen_token)
 
         control.check()
         withdrawn = _moved(withdraw(), "the withdraw")

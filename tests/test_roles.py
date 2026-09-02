@@ -17,6 +17,7 @@ def report(moved, result=Result.DONE):
 def cfg():
     return Config({
         "ready_token": "hsd-ready",
+        "seen_token": "hsd-seen",
         "blood_pact_room": 7216,
         "own_name": "DjTrilogic",
         "timing": {"after_ready_ms": 0},
@@ -31,34 +32,51 @@ def no_abort():
 
 
 class Sender:
-    def __init__(self, deposits, withdraws):
+    def __init__(self, deposits, withdraws, confirmed=True):
         self.deposits, self.withdraws = list(deposits), list(withdraws)
+        self.confirmed = confirmed
         self.calls = []
 
     def deposit(self):
         self.calls.append("deposit")
         return self.deposits.pop(0)
 
+    def announce(self, token):
+        self.calls.append("announce:" + token)
+
+    def wait_seen(self):
+        self.calls.append("wait_seen")
+        return self.confirmed
+
     def withdraw(self):
         self.calls.append("withdraw")
         return self.withdraws.pop(0)
 
-    def announce(self, token):
-        self.calls.append(f"announce:{token}")
+    def run(self, cfg, cycles=1):
+        return run_sender(cfg, cycles, deposit=self.deposit, announce=self.announce,
+                          wait_seen=self.wait_seen, withdraw=self.withdraw,
+                          log=lambda *_: None)
 
 
-def test_sender_runs_deposit_announce_withdraw_in_that_order(cfg):
+def test_sender_waits_for_confirmation_before_withdrawing(cfg):
+    """The bug this fixes: announcing and withdrawing straight away assumes the
+    receiver got there, and when it had not the cycle was silently wasted."""
     side = Sender([report(60)], [report(60)])
-    cycles = run_sender(cfg, 1, deposit=side.deposit, withdraw=side.withdraw,
-                        announce=side.announce, log=lambda *_: None)
-    assert side.calls == ["deposit", "announce:hsd-ready", "withdraw"]
+    cycles = side.run(cfg)
+    assert side.calls == ["deposit", "announce:hsd-ready", "wait_seen", "withdraw"]
     assert str(cycles[0]) == "cycle 1: deposited 60, withdrew 60"
+
+
+def test_sender_does_not_withdraw_when_the_receiver_never_confirms(cfg):
+    side = Sender([report(60)], [report(60)], confirmed=False)
+    with pytest.raises(Stopped, match="never confirmed"):
+        side.run(cfg)
+    assert "withdraw" not in side.calls
 
 
 def test_sender_repeats(cfg):
     side = Sender([report(60), report(60)], [report(60), report(60)])
-    run_sender(cfg, 2, deposit=side.deposit, withdraw=side.withdraw,
-               announce=side.announce, log=lambda *_: None)
+    side.run(cfg, 2)
     assert side.calls.count("announce:hsd-ready") == 2
 
 
@@ -66,33 +84,40 @@ def test_sender_stops_when_a_deposit_moves_nothing(cfg):
     """A stash that will not take anything must not be announced as ready."""
     side = Sender([report(0, Result.STALLED)], [report(60)])
     with pytest.raises(Stopped, match="deposit moved nothing"):
-        run_sender(cfg, 3, deposit=side.deposit, withdraw=side.withdraw,
-                   announce=side.announce, log=lambda *_: None)
+        side.run(cfg, 3)
     assert "announce:hsd-ready" not in side.calls
 
 
 def test_sender_honours_the_abort_before_announcing(cfg):
     side = Sender([report(60)], [report(60)])
+    first = side.deposit
 
     def deposit():
-        side.calls.append("deposit")
+        result = first()
         control.request_abort()
-        return report(60)
+        return result
 
+    side.deposit = deposit
     with pytest.raises(control.Aborted):
-        run_sender(cfg, 1, deposit=deposit, withdraw=side.withdraw,
-                   announce=side.announce, log=lambda *_: None)
+        side.run(cfg)
     assert side.calls == ["deposit"]
 
 
 class Receiver:
-    def __init__(self, event, reopens=True):
-        self.event, self.reopens = event, reopens
+    def __init__(self, event, reopens=True, sees=True):
+        self.event, self.reopens, self.sees = event, reopens, sees
         self.calls = []
 
     def wait_ready(self):
         self.calls.append("wait")
         return self.event
+
+    def see_items(self):
+        self.calls.append("see")
+        return self.sees
+
+    def confirm(self, token):
+        self.calls.append("confirm:" + token)
 
     def withdraw(self):
         self.calls.append("withdraw")
@@ -109,39 +134,55 @@ class Receiver:
         self.calls.append("open")
         return self.reopens
 
+    def run(self, cfg, cycles=1):
+        return run_receiver(cfg, cycles, wait_ready=self.wait_ready,
+                            see_items=self.see_items, confirm=self.confirm,
+                            withdraw=self.withdraw, close_stash=self.close_stash,
+                            use_all=self.use_all, open_stash=self.open_stash,
+                            log=lambda *_: None)
+
 
 GO = ChatEvent("Partner", 7216, "hsd-ready", "999", 1)
 
 
-def test_receiver_sequence(cfg):
+def test_receiver_sees_the_items_before_it_confirms(cfg):
     side = Receiver(GO)
-    run_receiver(cfg, 1, wait_ready=side.wait_ready, withdraw=side.withdraw,
-                 close_stash=side.close_stash, use_all=side.use_all,
-                 open_stash=side.open_stash, log=lambda *_: None)
-    assert side.calls == ["wait", "withdraw", "close", "use", "open"]
+    side.run(cfg)
+    assert side.calls == ["wait", "see", "confirm:hsd-seen", "withdraw",
+                          "close", "use", "open"]
+
+
+def test_receiver_does_not_confirm_items_it_cannot_see(cfg):
+    """The sender withdraws on the strength of this reply, so it has to be
+    evidence from the screen rather than an assumption."""
+    side = Receiver(GO, sees=False)
+    with pytest.raises(Stopped, match="never appeared"):
+        side.run(cfg)
+    assert not any(call.startswith("confirm") for call in side.calls)
+    assert "withdraw" not in side.calls
 
 
 def test_receiver_stops_if_the_stash_does_not_reopen(cfg):
-    """A click on a world object: if the character drifted, it fails, and the
+    """A click on a world object: if the character drifted it fails, and the
     next cycle would run with no stash at all."""
     side = Receiver(GO, reopens=False)
     with pytest.raises(Stopped, match="did not reopen"):
-        run_receiver(cfg, 2, wait_ready=side.wait_ready, withdraw=side.withdraw,
-                     close_stash=side.close_stash, use_all=side.use_all,
-                     open_stash=side.open_stash, log=lambda *_: None)
+        side.run(cfg, 2)
 
 
 def test_receiver_stops_when_no_one_announces(cfg):
     side = Receiver(None)
     with pytest.raises(Stopped, match="never announced"):
-        run_receiver(cfg, 1, wait_ready=side.wait_ready, withdraw=side.withdraw,
-                     close_stash=side.close_stash, use_all=side.use_all,
-                     open_stash=side.open_stash, log=lambda *_: None)
+        side.run(cfg)
+
+
+def test_the_two_tokens_differ_so_neither_side_answers_itself(cfg):
+    """Everyone on the topic receives everything, including their own
+    publishes. Matching tokens would have each side confirming to itself."""
+    assert cfg.data["ready_token"] != cfg.data["seen_token"]
 
 
 def test_ready_ignores_our_own_announcement(cfg):
-    """The capture sees what we send as well as what we receive. A sender that
-    does not exclude itself hears its own go signal and races itself."""
     assert not ready_matcher(cfg)(ChatEvent("DjTrilogic", 7216, "hsd-ready", "1", 0))
     assert ready_matcher(cfg)(ChatEvent("Partner", 7216, "hsd-ready", "2", 0))
 
