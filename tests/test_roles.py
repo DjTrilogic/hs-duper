@@ -116,6 +116,7 @@ class Receiver:
         self.stash_opens, self.closes = stash_opens, closes
         self.inventory_opens = inventory_opens
         self.use_report = use_report or report(60)
+        self.opening_records = []
         self.calls = []
 
     def ensure_stash(self):
@@ -149,13 +150,17 @@ class Receiver:
         self.calls.append("use")
         return self.use_report
 
+    def record_opening(self, number, withdrawn, opening_report):
+        self.opening_records.append((number, withdrawn, opening_report))
+
     def run(self, cfg, cycles=1):
         return run_receiver(cfg, cycles, wait_ready=self.wait_ready,
                             ensure_stash=self.ensure_stash,
                             see_items=self.see_items, confirm=self.confirm,
                             withdraw=self.withdraw, close_stash=self.close_stash,
                             open_inventory=self.open_inventory,
-                            use_all=self.use_all, log=lambda *_: None)
+                            use_all=self.use_all, record_opening=self.record_opening,
+                            log=lambda *_: None)
 
 
 GO = ChatEvent("Partner", 7216, "hsd-ready", "999", 1)
@@ -220,6 +225,7 @@ def test_receiver_stops_before_the_next_cycle_if_items_remain(cfg):
 
     assert side.calls.count("wait") == 1
     assert side.calls[-1] == "use"
+    assert side.opening_records == [(1, 60, side.use_report)]
 
 
 def test_receiver_stops_when_no_one_announces(cfg):

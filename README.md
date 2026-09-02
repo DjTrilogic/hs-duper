@@ -67,6 +67,21 @@ signal goes over a pub/sub topic both machines share.
 | `--dry-run` | narrate every step, click nothing, publish nothing |
 | `--no-use` | receiver: skip using the items, so nothing is consumed |
 
+### Opening statistics
+
+Every real receiver run that opens items is recorded in `stats.json`. The file
+contains each session and a cumulative `totals` block. A cycle records the
+withdrawn count, confirmed-opened count, opening passes, and anything still
+visible when the receiver stopped. Dry runs and `--no-use` runs are not counted.
+
+Show the latest session and all-time totals without opening the game:
+
+```powershell
+.\.venv\Scripts\python.exe -m hsduper stats
+```
+
+`stats.json` is local machine state and is ignored by Git.
+
 ### Testing alone
 
 The sender loop is safe to run with nobody listening — the items go to the stash
@@ -190,6 +205,7 @@ at your own instance instead.
 | `deposit` / `withdraw` | one bulk transfer |
 | `pact sender\|receiver [n]` | run the cycle |
 | `link [topic]` / `ping` / `watch` / `await` | the signal topic: set it, test it, observe it |
+| `stats` | show the latest receiver session and cumulative item-opening totals |
 | `click [what]` / `hover` / `doctor` | input diagnostics |
 | `listen` / `say` | read and write Blood Pact chat (diagnostics only) |
 
@@ -265,7 +281,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-117 tests: grid geometry and occupancy against synthetic frames, the transfer
+120 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

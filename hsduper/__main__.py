@@ -1,5 +1,6 @@
 """hs-duper - bulk item transfer between the inventory and the Blood Pact stash."""
 
+import json
 import sys
 import threading
 import time
@@ -14,7 +15,7 @@ winput.set_dpi_aware()
 from pynput import keyboard  # noqa: E402
 
 import numpy as np  # noqa: E402
-from . import calibrate, capture, chat, control, doctor, notify, panels, roles, signal  # noqa: E402
+from . import calibrate, capture, chat, control, doctor, notify, panels, roles, signal, stats  # noqa: E402
 from .config import GRID_NAMES, Config  # noqa: E402
 from .grid import BlankCapture  # noqa: E402
 from .transfer import (NotFocused, PanelClosed, Report, Result, park, transfer,  # noqa: E402
@@ -36,6 +37,7 @@ USAGE = """hs-duper
   python -m hsduper ping [text]            publish a go signal
   python -m hsduper await [seconds]        wait for one
   python -m hsduper watch [seconds]        print everything on the topic
+  python -m hsduper stats                  show receiver opening statistics
   python -m hsduper pact sender|receiver [n] [--dry-run] [--no-use]
   python -m hsduper run                    arm the hotkeys and wait
 
@@ -583,6 +585,23 @@ def cmd_pact(args: list[str]) -> int:
     control.clear()
     print(f"  {role}, {cycles} cycle(s). F12 aborts.")
 
+    stats_session = None
+    if role == "receiver" and not no_use:
+        try:
+            stats_session = stats.OpeningSession.start(cycles)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"  cannot start opening statistics: {exc}")
+            return 1
+
+    def finish_stats(status: str, reason: str | None = None) -> None:
+        if stats_session is None:
+            return
+        try:
+            stats_session.finish(status, reason)
+            print(f"  stats: {stats_session.summary_line()}")
+        except OSError as exc:
+            print(f"  warning: could not finish opening statistics: {exc}")
+
     listener = keyboard.Listener(
         on_press=lambda k: control.request_abort() if k == keyboard.Key.f12 else None)
     listener.start()
@@ -629,17 +648,30 @@ def cmd_pact(args: list[str]) -> int:
                 open_inventory=(lambda: True) if dry else lambda: panels.open_inventory(cfg),
                 use_all=nothing_happened("use every item in the inventory")
                 if no_use else lambda: panels.use_all(cfg, inventory),
+                record_opening=None if stats_session is None else stats_session.record_cycle,
             )
+        finish_stats("completed")
     except (roles.Stopped, PanelClosed, NotFocused, BlankCapture) as exc:
+        finish_stats("stopped", str(exc))
         print(f"  stopped: {exc}")
         return 1
     except control.Aborted as exc:
+        finish_stats("aborted", str(exc))
         print(f"  aborted: {exc}")
         return 1
     finally:
         control.request_abort()
         listener.stop()
     print("  done.")
+    return 0
+
+
+def cmd_stats() -> int:
+    try:
+        stats.print_report()
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: cannot read opening statistics: {exc}")
+        return 1
     return 0
 
 
@@ -676,6 +708,8 @@ def main(argv: list[str]) -> int:
             return cmd_await(rest)
         if command == "watch":
             return cmd_watch(rest)
+        if command == "stats":
+            return cmd_stats()
         if command == "pact":
             return cmd_pact(rest)
         if command == "run":

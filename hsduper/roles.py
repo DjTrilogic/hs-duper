@@ -99,7 +99,8 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
 
 
 def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_items,
-                 confirm, withdraw, close_stash, open_inventory, use_all, log=print):
+                 confirm, withdraw, close_stash, open_inventory, use_all,
+                 record_opening=None, log=print):
     """wait -> open stash -> see -> confirm -> withdraw -> shut -> open inventory -> use.
 
     A cycle ends with the stash shut and does not reopen it. Reopening only
@@ -165,6 +166,8 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
 
         control.check()
         use_report = use_all()
+        if record_opening is not None:
+            record_opening(n, withdrawn, use_report)
         used = use_report.moved
         if use_report.result is not Result.DONE or use_report.left:
             raise Stopped(
