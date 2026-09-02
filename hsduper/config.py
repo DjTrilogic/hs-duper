@@ -36,6 +36,9 @@ DEFAULT_TIMING = {
     "max_passes": 6,
     # Item opening is server-backed and needs a slower cadence than transfers.
     "use_click_delay_ms": 250,
+    # Let late server responses settle before rescanning and retrying the slots
+    # whose items are still visibly present.
+    "use_retry_delay_ms": 500,
     # Between the steps of sending a chat line: opening it, picking the tab,
     # focusing the field, sending.
     "chat_step_ms": 180,

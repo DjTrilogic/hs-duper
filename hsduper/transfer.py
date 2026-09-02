@@ -76,6 +76,7 @@ def transfer(
     forbidden: tuple[str, ...] = (),
     click=None,
     click_delay_ms: float | None = None,
+    max_passes: int | None = None,
     log=print,
 ) -> Report:
     """Drain `source` a pass at a time until nothing moves.
@@ -91,7 +92,9 @@ def transfer(
     """
     if click is None:
         click = make_click(cfg)
-    max_passes = int(cfg.timing("max_passes"))
+    if max_passes is None:
+        max_passes = int(cfg.timing("max_passes"))
+    max_passes = max(int(max_passes), 1)
     move_settle = cfg.timing("move_settle_ms") / 1000
     if click_delay_ms is None:
         click_delay_ms = cfg.timing("click_delay_ms")
@@ -158,6 +161,8 @@ def transfer(
         after = source.occupied()
         remaining = int(after.sum())
         moved += max(count - remaining, 0)
+        if remaining == 0:
+            return Report(Result.DONE, moved, attempt, 0)
         if remaining >= count:
             return Report(Result.STALLED, moved, attempt, remaining)
 

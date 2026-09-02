@@ -4,9 +4,10 @@ import time
 
 from . import winput
 from .config import Config
-from .transfer import transfer
+from .transfer import Report, Result, transfer
 
 DEFAULT_OPEN_ATTEMPTS = 3
+DEFAULT_USE_ATTEMPTS = 3
 
 
 def _wait_for_anchor(cfg: Config, name: str, timeout_ms: float) -> bool:
@@ -83,14 +84,41 @@ def use_all(cfg: Config, grid, log=print):
     is not 'use', so the pass must refuse to run until the panel is really gone.
     """
     hold_ms = int(cfg.timing("button_hold_ms"))
-    return transfer(
-        grid, cfg,
-        anchors=("inventory_standalone",),
-        forbidden=("stash",),
-        click=lambda: winput.right_click(hold_ms),
-        click_delay_ms=cfg.timing("use_click_delay_ms"),
-        log=log,
-    )
+    attempts = max(int(cfg.data.get("use_attempts", DEFAULT_USE_ATTEMPTS)), 1)
+    retry_delay = max(cfg.timing("use_retry_delay_ms"), 0) / 1000
+    initial = None
+    confirmed = 0
+    passes = 0
+    remaining = 0
+
+    for attempt in range(1, attempts + 1):
+        log(f"  item-opening attempt {attempt}/{attempts}")
+        report = transfer(
+            grid, cfg,
+            anchors=("inventory_standalone",),
+            forbidden=("stash",),
+            click=lambda: winput.right_click(hold_ms),
+            click_delay_ms=cfg.timing("use_click_delay_ms"),
+            max_passes=1,
+            log=log,
+        )
+        passes += report.passes
+        remaining = report.left
+        if initial is None:
+            initial = report.moved + remaining
+        previous = confirmed
+        confirmed = max(initial - remaining, 0)
+        log(
+            f"  confirmed opened: +{max(confirmed - previous, 0)}, total {confirmed}; "
+            f"{remaining} item(s) remaining"
+        )
+        if report.result is Result.DONE and remaining == 0:
+            return Report(Result.DONE, confirmed, passes, 0)
+        if attempt < attempts and retry_delay:
+            log(f"  waiting {retry_delay:g}s before retrying remaining items")
+            time.sleep(retry_delay)
+
+    return Report(Result.MAX_PASSES, confirmed, passes, remaining)
 
 
 def ensure_stash_open(cfg: Config, log=print) -> bool:

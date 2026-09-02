@@ -123,6 +123,7 @@ def test_an_unset_timing_falls_back_to_the_default():
 
     assert Config({}).timing("click_delay_ms") == DEFAULT_TIMING["click_delay_ms"]
     assert Config({}).timing("use_click_delay_ms") == 250
+    assert Config({}).timing("use_retry_delay_ms") == 500
 
 
 def test_a_genuinely_unknown_timing_still_raises():

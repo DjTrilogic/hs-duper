@@ -121,7 +121,7 @@ def test_leftovers_are_picked_up_by_a_later_pass(cfg, click, fake_mouse):
 def test_gives_up_after_max_passes(cfg, click):
     cfg.data["timing"]["max_passes"] = 3
     # never empties, but always moves one, so it never counts as stalled either
-    grid = ScriptedGrid([full(3), full(2), full(2), one(2), one(2), empty(2), full(2)])
+    grid = ScriptedGrid([full(4), full(3), full(3), full(2), full(2), one(2), full(2)])
     report = transfer(grid, cfg, click=click, log=lambda *_: None)
     assert report.result is Result.MAX_PASSES
     assert report.passes == 3

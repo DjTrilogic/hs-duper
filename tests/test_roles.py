@@ -9,8 +9,8 @@ from hsduper.signal import ChatEvent
 from hsduper.transfer import Report, Result
 
 
-def report(moved, result=Result.DONE):
-    return Report(result, moved, 1, 0)
+def report(moved, result=Result.DONE, left=0):
+    return Report(result, moved, 1, left)
 
 
 @pytest.fixture
@@ -111,10 +111,11 @@ def test_sender_honours_the_abort_before_announcing(cfg):
 
 class Receiver:
     def __init__(self, event, sees=True, stash_opens=True, closes=True,
-                 inventory_opens=True):
+                 inventory_opens=True, use_report=None):
         self.event, self.sees = event, sees
         self.stash_opens, self.closes = stash_opens, closes
         self.inventory_opens = inventory_opens
+        self.use_report = use_report or report(60)
         self.calls = []
 
     def ensure_stash(self):
@@ -146,7 +147,7 @@ class Receiver:
 
     def use_all(self):
         self.calls.append("use")
-        return report(60)
+        return self.use_report
 
     def run(self, cfg, cycles=1):
         return run_receiver(cfg, cycles, wait_ready=self.wait_ready,
@@ -209,6 +210,16 @@ def test_receiver_opens_inventory_before_using_items(cfg):
         side.run(cfg)
     assert side.calls[-2:] == ["close", "open_inventory"]
     assert "use" not in side.calls
+
+
+def test_receiver_stops_before_the_next_cycle_if_items_remain(cfg):
+    side = Receiver(GO, use_report=report(55, Result.MAX_PASSES, left=5))
+
+    with pytest.raises(Stopped, match="55 confirmed opened, 5 still visible"):
+        side.run(cfg, cycles=2)
+
+    assert side.calls.count("wait") == 1
+    assert side.calls[-1] == "use"
 
 
 def test_receiver_stops_when_no_one_announces(cfg):

@@ -16,6 +16,7 @@ class PanelConfig:
             "panel_open_timeout_ms": timeout_ms,
             "panel_poll_ms": 10,
             "use_click_delay_ms": 250,
+            "use_retry_delay_ms": 500,
         }
 
     def anchor_ok(self, name):
@@ -122,3 +123,47 @@ def test_use_all_right_clicks_without_ctrl(monkeypatch):
     assert transfer_args["anchors"] == ("inventory_standalone",)
     assert transfer_args["forbidden"] == ("stash",)
     assert transfer_args["click_delay_ms"] == 250
+    assert transfer_args["max_passes"] == 1
+
+
+def test_use_all_retries_remaining_items_and_counts_only_disappearances(monkeypatch):
+    cfg = PanelConfig([], timeout_ms=0)
+    reports = iter([
+        Report(Result.MAX_PASSES, 7, 1, 3),
+        # Only one click succeeded during retry; the other two disappeared
+        # during the settling delay and must still be included in the count.
+        Report(Result.DONE, 1, 1, 0),
+    ])
+    calls = []
+    sleeps = []
+    logs = []
+
+    def fake_transfer(grid, config, **kwargs):
+        calls.append(kwargs)
+        return next(reports)
+
+    monkeypatch.setattr(panels, "transfer", fake_transfer)
+    monkeypatch.setattr(panels.time, "sleep", sleeps.append)
+
+    result = panels.use_all(cfg, object(), log=logs.append)
+
+    assert result == Report(Result.DONE, 10, 2, 0)
+    assert len(calls) == 2
+    assert sleeps == [0.5]
+    assert any("confirmed opened: +7, total 7; 3 item(s) remaining" in line for line in logs)
+    assert any("confirmed opened: +3, total 10; 0 item(s) remaining" in line for line in logs)
+
+
+def test_use_all_reports_items_left_after_all_retries(monkeypatch):
+    cfg = PanelConfig([], timeout_ms=0)
+    cfg.data["use_attempts"] = 2
+    reports = iter([
+        Report(Result.STALLED, 0, 1, 4),
+        Report(Result.MAX_PASSES, 1, 1, 3),
+    ])
+    monkeypatch.setattr(panels, "transfer", lambda *args, **kwargs: next(reports))
+    monkeypatch.setattr(panels.time, "sleep", lambda *_: None)
+
+    assert panels.use_all(cfg, object(), log=lambda *_: None) == Report(
+        Result.MAX_PASSES, 1, 2, 3
+    )

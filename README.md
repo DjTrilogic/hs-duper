@@ -20,7 +20,7 @@ One cycle, with both machines running hs-duper:
 | 3 | waiting for confirmation | opens the stash, then watches it until the items are visible |
 | 4 | | publishes the confirmation |
 | 5 | withdraws the stash back | withdraws the same items |
-| 6 | | closes the stash, opens the inventory with `I`, then uses the items |
+| 6 | | closes the stash, opens the inventory with `I`, then uses and verifies every item |
 
 The receiver's cycle ends with the stash **closed** and the inventory open. It
 reopens the stash only when the next go signal arrives, at step 3. That is
@@ -208,6 +208,8 @@ at your own instance instead.
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
 | `timing.use_click_delay_ms` | delay between item-opening clicks (default: 250 ms) |
+| `timing.use_retry_delay_ms` | settling delay before retrying items still visible (default: 500 ms) |
+| `use_attempts` | maximum item-opening passes, including the first (default: 3) |
 | `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
 | `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
 | `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |
@@ -229,7 +231,7 @@ at your own instance instead.
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
 | **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
-| **"the stash would not open"** | each click is checked repeatedly and retried; run `calibrate anchors` after upgrading so title detection uses the brightness-independent template |
+| **"the stash would not open"** | each `F` press is checked repeatedly and retried; run `calibrate anchors` after upgrading so title detection uses the brightness-independent template |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
 | **"the inventory would not open"** | the standalone inventory differs from the one shown beside the stash; run `calibrate anchors` and mark both versions when prompted |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
@@ -246,6 +248,12 @@ shows up as a pass that moved nothing). Occupancy is the 95th percentile of
 luminance over the middle of each cell: an empty slot is near-uniform dark, and
 any item icon puts bright pixels in it whatever its colour.
 
+**Item opening** uses the same scan-before/scan-after evidence, but retries even
+when a pass made no progress. Its counter increases only by the number of slots
+that actually became empty, never by the number of RMB events sent. If anything
+is still visible after all attempts, the receiver leaves the inventory open and
+stops before starting another stash cycle.
+
 **The signal** is one token on a shared pub/sub topic. The receiver holds a
 single streamed connection open rather than polling — polling once a second
 would be thousands of requests across a wait, and the public relay rate-limits
@@ -257,7 +265,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-114 tests: grid geometry and occupancy against synthetic frames, the transfer
+117 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

@@ -164,7 +164,14 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
             )
 
         control.check()
-        used = _moved(use_all(), "using the items")
+        use_report = use_all()
+        used = use_report.moved
+        if use_report.result is not Result.DONE or use_report.left:
+            raise Stopped(
+                f"item opening is incomplete: {used} confirmed opened, "
+                f"{use_report.left} still visible after all retries. Leaving the "
+                "inventory open and stopping before the next stash cycle."
+            )
 
         cycle = Cycle(n, 0, withdrawn, used)
         log(f"  {cycle} (stash left shut until the next signal)")
