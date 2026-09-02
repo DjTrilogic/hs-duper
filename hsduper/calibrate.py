@@ -8,6 +8,7 @@ console, so that every step needing the game in front of you is a keypress.
 
 import math
 import threading
+import time
 
 import numpy as np
 from pynput import keyboard
@@ -17,6 +18,12 @@ from .config import GRID_NAMES, PATH, Config
 from .grid import INNER, Grid
 
 ANCHOR_W, ANCHOR_H = 80, 20
+SAMPLE_PARK_POINT = (0, 0)
+SAMPLE_SETTLE_SECONDS = 0.12
+GRID_SIZE_DEFAULTS = {
+    "inventory": (6, 15),
+    "stash": (18, 17),
+}
 
 
 class Cancelled(RuntimeError):
@@ -56,21 +63,37 @@ def mark(prompt: str) -> tuple[int, int]:
 def sample_metric(point: tuple[int, int], pitch_x: float, pitch_y: float) -> float:
     """The occupancy metric for the cell under the cursor.
 
-    Deliberately measured from a patch centred on the cursor rather than by
-    cell index, so it does not depend on the geometry just derived being right
-    - if it is wrong, the two samples still describe a real empty and a real
-    full slot and the mismatch shows up in `scan` instead of hiding here.
+    The game paints a very bright highlight over every hovered slot. Move the
+    cursor away and let that highlight clear before grabbing the pixels;
+    otherwise an empty and an occupied slot both measure near-white.
+
+    The patch remains centred on the point the user marked rather than on a
+    derived cell index, so this does not hide bad grid geometry.
     """
+    winput.move_to(*SAMPLE_PARK_POINT)
+    time.sleep(SAMPLE_SETTLE_SECONDS)
     w = max(int(pitch_x * INNER), 4)
     h = max(int(pitch_y * INNER), 4)
     frame = capture.grab((point[0] - w // 2, point[1] - h // 2, w, h))
     return float(np.percentile(capture.luminance(frame), 95))
 
 
+def ask_grid_size(name: str) -> tuple[int, int]:
+    defaults = GRID_SIZE_DEFAULTS.get(name)
+    if defaults is None:
+        return int(input(f"  rows in {name}: ").strip()), int(
+            input(f"  columns in {name}: ").strip()
+        )
+
+    default_rows, default_cols = defaults
+    rows = int(input(f"  rows in {name} [{default_rows}]: ").strip() or default_rows)
+    cols = int(input(f"  columns in {name} [{default_cols}]: ").strip() or default_cols)
+    return rows, cols
+
+
 def calibrate_grid(name: str) -> Grid:
     print(f"\n=== {name} ===")
-    rows = int(input(f"  rows in {name}: ").strip())
-    cols = int(input(f"  columns in {name}: ").strip())
+    rows, cols = ask_grid_size(name)
     print("  Now switch to Hero Siege with the right panels open.")
 
     x0, y0 = mark("The CENTRE of the TOP-LEFT cell.")
