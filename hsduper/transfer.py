@@ -131,6 +131,12 @@ def transfer(
         before = source.occupied()
         count = int(before.sum())
         if count == 0:
+            # Say so. Returning in silence made "there was nothing to move" and
+            # "this step never ran" look identical in the log, which is exactly
+            # the ambiguity you hit when a cycle announced a deposit it had not
+            # made.
+            log(f"  {source.name} scans as empty"
+                + (" - nothing to move" if attempt == 1 else " - drained"))
             return Report(Result.DONE, moved, attempt - 1, 0)
 
         log(f"  pass {attempt}: {count} occupied cell(s) in {source.name}")
@@ -154,7 +160,9 @@ def transfer(
         time.sleep(pass_settle)
         after = source.occupied()
         remaining = int(after.sum())
-        moved += max(count - remaining, 0)
+        gone = max(count - remaining, 0)
+        moved += gone
+        log(f"    {gone} left {source.name} this pass, {remaining} still there")
         if remaining >= count:
             return Report(Result.STALLED, moved, attempt, remaining)
 
