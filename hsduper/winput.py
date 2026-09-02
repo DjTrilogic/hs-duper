@@ -49,7 +49,7 @@ SC_I = 0x17
 #: because a game reading either one will see it. The other two exist so a game
 #: that only believes one of them can be found by trying.
 CTRL_MODES = ("both", "scancode", "vk")
-DEFAULT_CTRL_MODE = "scancode"
+DEFAULT_CTRL_MODE = "both"
 
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77

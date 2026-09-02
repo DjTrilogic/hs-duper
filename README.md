@@ -311,7 +311,7 @@ at your own instance instead.
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |
 | `notify.token` or `notify.user`/`password` | credentials, for a relay that wants them |
-| `ctrl_mode` | how CTRL is delivered: `scancode` (default), `both`, or `vk` |
+| `ctrl_mode` | how CTRL is delivered: `both` (default), `vk`, or `scancode` |
 
 ---
 

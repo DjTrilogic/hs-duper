@@ -68,7 +68,7 @@ def _withdraw_and_close(
         1,
     )
     configured_mode = cfg.data.get("ctrl_mode")
-    fallback_modes = ("scancode", "vk", "both")
+    fallback_modes = ("both", "vk", "scancode")
 
     def abort_cleanup() -> None:
         # CTRL is already released by transfer's finally block. Place any

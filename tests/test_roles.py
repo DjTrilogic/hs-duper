@@ -262,7 +262,7 @@ def test_receiver_retries_withdraw_when_escape_returns_a_carried_item(cfg):
     assert cycles[0].withdrew == 18
     assert any("empty inventory cell" in line for line in logs)
     assert [line for line in logs if "withdraw CTRL mode" in line] == [
-        "  withdraw CTRL mode: scancode",
+        "  withdraw CTRL mode: both",
         "  withdraw CTRL mode: vk",
     ]
 

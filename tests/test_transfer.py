@@ -153,11 +153,11 @@ def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
 
     transfer(grid, cfg, log=lambda *_: None)
 
-    assert events[0] == ("ctrl-down", 45, "scancode")
-    assert events[-1] == ("ctrl-up", 45, "scancode")
+    assert events[0] == ("ctrl-down", 45, "both")
+    assert events[-1] == ("ctrl-up", 45, "both")
     clicks = [event for event in events if event[0] == "left"]
     assert len(clicks) == 4
-    assert all(event[3:] == (45, "scancode") for event in clicks)
+    assert all(event[3:] == (45, "both") for event in clicks)
     assert not any(event[0] == "ctrl-down" for event in events[1:-1])
 
 
