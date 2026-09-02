@@ -611,6 +611,11 @@ def cmd_pact(args: list[str]) -> int:
         seen = cfg.data.get("seen_token", "hsd-seen")
         confirm_wait = cfg.timing("confirm_timeout_ms") / 1000
 
+        def wait_for_signal(match, timeout):
+            value = link.wait_for(match, timeout=timeout, cancelled=control.aborted)
+            control.check()
+            return value
+
         def nothing_happened(what):
             def act(*_):
                 print(f"    [dry run] would {what}")
@@ -631,13 +636,13 @@ def cmd_pact(args: list[str]) -> int:
                 announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
                 if dry else link.announce,
                 wait_seen=(lambda: True) if dry else
-                (lambda: link.wait_for(lambda t: seen in t, timeout=confirm_wait) is not None),
+                (lambda: wait_for_signal(lambda t: seen in t, confirm_wait) is not None),
                 withdraw=move(stash),
             )
         else:
             roles.run_receiver(
                 cfg, cycles,
-                wait_ready=lambda: link.wait_for(lambda t: token in t, timeout=600.0),
+                wait_ready=lambda: wait_for_signal(lambda t: token in t, 600.0),
                 ensure_stash=keep_open,
                 see_items=(lambda: True) if dry else
                 (lambda: wait_until_occupied(stash, cfg, timeout=confirm_wait) > 0),

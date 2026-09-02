@@ -60,7 +60,8 @@ signal goes over a pub/sub topic both machines share.
 .\.venv\Scripts\python.exe -m hsduper pact sender 5
 ```
 
-`5` is the number of cycles. **F12 aborts.** Start with `1`.
+`5` is the number of cycles. **F12 aborts**, including while waiting for the
+other machine's signal. Start with `1`.
 
 | flag | |
 | --- | --- |
@@ -187,7 +188,7 @@ at your own instance instead.
   as missing — "I was never told what to look for" must not mean "go ahead".
 - **The run stops if Hero Siege loses focus**, rather than clicking into
   whatever window came forward.
-- **F12** is checked before every click.
+- **F12** is checked before every click and while waiting on the network signal.
 - **Moving the mouse yourself stops the run.** The tool drives the same cursor
   you do.
 - CTRL is released in a `finally`, so an abort mid-click cannot leave it stuck.
@@ -281,7 +282,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-120 tests: grid geometry and occupancy against synthetic frames, the transfer
+121 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 
