@@ -15,7 +15,7 @@ class PanelConfig:
             "move_settle_ms": 0,
             "panel_open_timeout_ms": timeout_ms,
             "panel_poll_ms": 10,
-            "use_batch_delay_ms": 1000,
+            "use_click_delay_ms": 250,
         }
 
     def anchor_ok(self, name):
@@ -121,27 +121,4 @@ def test_use_all_right_clicks_without_ctrl(monkeypatch):
     assert clicks == [("right", 73)]
     assert transfer_args["anchors"] == ("inventory_standalone",)
     assert transfer_args["forbidden"] == ("stash",)
-
-
-def test_use_all_waits_for_the_server_every_ten_clicks(monkeypatch):
-    cfg = PanelConfig([], timeout_ms=0)
-    clicks = []
-    sleeps = []
-    logs = []
-    monkeypatch.setattr(panels.winput, "right_click", lambda *_: clicks.append("right"))
-    monkeypatch.setattr(panels.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    def fake_transfer(grid, config, **kwargs):
-        for _ in range(21):
-            kwargs["click"]()
-        return Report(Result.DONE, 21, 1, 0)
-
-    monkeypatch.setattr(panels, "transfer", fake_transfer)
-
-    result = panels.use_all(cfg, object(), log=logs.append)
-
-    assert result.result is Result.DONE
-    assert len(clicks) == 21
-    assert sleeps == [1.0, 1.0]
-    assert any("10 use click(s)" in line for line in logs)
-    assert any("20 use click(s)" in line for line in logs)
+    assert transfer_args["click_delay_ms"] == 250

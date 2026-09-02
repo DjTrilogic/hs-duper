@@ -2,12 +2,11 @@
 
 import time
 
-from . import control, winput
+from . import winput
 from .config import Config
 from .transfer import transfer
 
 DEFAULT_OPEN_ATTEMPTS = 3
-DEFAULT_USE_BATCH_SIZE = 10
 
 
 def _wait_for_anchor(cfg: Config, name: str, timeout_ms: float) -> bool:
@@ -83,26 +82,13 @@ def use_all(cfg: Config, grid, log=print):
     The forbidden anchor is the safety here: with the stash open this gesture
     is not 'use', so the pass must refuse to run until the panel is really gone.
     """
-    clicks = 0
     hold_ms = int(cfg.timing("button_hold_ms"))
-    batch_size = max(int(cfg.data.get("use_batch_size", DEFAULT_USE_BATCH_SIZE)), 1)
-    batch_delay = max(cfg.timing("use_batch_delay_ms"), 0) / 1000
-
-    def use_one() -> None:
-        nonlocal clicks
-        winput.right_click(hold_ms)
-        clicks += 1
-        if clicks % batch_size == 0 and batch_delay:
-            log(f"  {clicks} use click(s) sent - waiting {batch_delay:g}s for the server")
-            control.check()
-            time.sleep(batch_delay)
-            control.check()
-
     return transfer(
         grid, cfg,
         anchors=("inventory_standalone",),
         forbidden=("stash",),
-        click=use_one,
+        click=lambda: winput.right_click(hold_ms),
+        click_delay_ms=cfg.timing("use_click_delay_ms"),
         log=log,
     )
 

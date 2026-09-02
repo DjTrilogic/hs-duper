@@ -34,9 +34,8 @@ DEFAULT_TIMING = {
     "tooltip_ms": 150,
     "pass_settle_ms": 250,
     "max_passes": 6,
-    # Item opening is server-backed. Pause periodically so a large inventory
-    # does not send every use request in one uninterrupted burst.
-    "use_batch_delay_ms": 1000,
+    # Item opening is server-backed and needs a slower cadence than transfers.
+    "use_click_delay_ms": 250,
     # Between the steps of sending a chat line: opening it, picking the tab,
     # focusing the field, sending.
     "chat_step_ms": 180,

@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+import hsduper.transfer as transfer_module
 from hsduper import control, doctor, winput
 from hsduper.config import Config
 from hsduper.grid import Grid
@@ -86,6 +87,16 @@ def test_clicks_land_on_the_cell_centres(cfg, click, fake_mouse):
     grid = ScriptedGrid([one(), empty(), empty()])
     transfer(grid, cfg, click=click, log=lambda *_: None)
     assert fake_mouse["clicks"] == [(100, 200)]
+
+
+def test_a_custom_delay_can_be_used_between_clicks(cfg, click, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(transfer_module.time, "sleep", sleeps.append)
+    grid = ScriptedGrid([one(), empty(), empty()])
+
+    transfer(grid, cfg, click=click, click_delay_ms=250, log=lambda *_: None)
+
+    assert sleeps.count(0.25) == 1
 
 
 def test_a_pass_that_moves_nothing_stops_instead_of_clicking_on(cfg, click, fake_mouse):

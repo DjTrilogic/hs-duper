@@ -75,6 +75,7 @@ def transfer(
     anchors: tuple[str, ...] = ("inventory_stash_open", "stash"),
     forbidden: tuple[str, ...] = (),
     click=None,
+    click_delay_ms: float | None = None,
     log=print,
 ) -> Report:
     """Drain `source` a pass at a time until nothing moves.
@@ -92,7 +93,9 @@ def transfer(
         click = make_click(cfg)
     max_passes = int(cfg.timing("max_passes"))
     move_settle = cfg.timing("move_settle_ms") / 1000
-    click_delay = cfg.timing("click_delay_ms") / 1000
+    if click_delay_ms is None:
+        click_delay_ms = cfg.timing("click_delay_ms")
+    click_delay = max(click_delay_ms, 0) / 1000
     jitter = cfg.timing("jitter_ms") / 1000
     pass_settle = cfg.timing("pass_settle_ms") / 1000
 
