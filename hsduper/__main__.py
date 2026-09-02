@@ -510,7 +510,10 @@ def cmd_ping(args: list[str]) -> int:
     link.poll()  # start from now, so an older ping cannot answer for this one
     link.announce(token)
     print(f"  published {token!r}, waiting for it to come back...")
-    got = link.wait_for(lambda t: t == token, timeout=20.0)
+    # A short diagnostic should replay from ntfy's cache. Opening a live stream
+    # only after publishing leaves a small race where another subscriber sees
+    # the message but this command begins listening too late.
+    got = link.poll_for(lambda t: t == token, timeout=20.0)
     if got is None:
         print("  it never came back. The relay may be unreachable, or the topic wrong.")
         return 1

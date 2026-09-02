@@ -86,6 +86,24 @@ class NtfyNotifier:
                 out.append(text)
         return out
 
+    def poll_for(self, match, timeout: float = 20.0, interval_s: float = 0.5):
+        """Poll briefly until a matching message is replayed from the cache.
+
+        This is for the one-shot `ping` diagnostic. Unlike a receiver waiting
+        for minutes, a short round-trip check benefits from cache replay: it
+        cannot miss a message published just before its listening connection
+        opens.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            for text in self.poll():
+                if match(text):
+                    return text
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            time.sleep(min(interval_s, remaining))
+
     def _text_of(self, line) -> str | None:
         """One stream line to a message body, or None if it is not one.
 

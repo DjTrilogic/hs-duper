@@ -86,6 +86,15 @@ def test_junk_lines_do_not_stop_the_good_ones():
     assert notifier(http).poll() == ["hsd-ready"]
 
 
+def test_poll_for_retries_until_the_matching_message_is_cached():
+    http = FakeHttp("", message("1", "noise"), message("2", "hsd-ready#123"))
+    got = notifier(http).poll_for(
+        lambda text: text == "hsd-ready#123", timeout=1.0, interval_s=0.001
+    )
+    assert got == "hsd-ready#123"
+    assert len(http.urls) == 3
+
+
 class FakeStream:
     """A held-open connection: each entry is one connection's worth of lines.
 

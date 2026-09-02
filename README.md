@@ -82,8 +82,13 @@ decides whether anything else works.
 .\.venv\Scripts\python.exe -m hsduper calibrate
 ```
 
-You type row and column counts at the console, then hover things in game and
-press **F8**. ESC cancels.
+You confirm the row and column counts at the console, then hover things in game
+and press **F8**. The defaults are 6x15 for the inventory and 18x17 for the
+stash; press Enter to accept them or type a different value. ESC cancels.
+
+When the brightness of an empty or occupied slot is sampled, calibration moves
+the cursor briefly to the top-left of the screen. This clears the game's bright
+hover highlight before the pixels are captured, so it is expected.
 
 | what | why |
 | --- | --- |
