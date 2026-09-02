@@ -1,5 +1,7 @@
 """The move loop, with the game replaced by a script of what the grid shows."""
 
+from contextlib import contextmanager
+
 import numpy as np
 import pytest
 
@@ -89,6 +91,43 @@ def test_clicks_land_on_the_cell_centres(cfg, click, fake_mouse):
     assert fake_mouse["clicks"] == [(100, 200)]
 
 
+def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
+    cfg, fake_mouse, monkeypatch
+):
+    events = []
+
+    @contextmanager
+    def held_ctrl(*, settle_ms, mode):
+        events.append(("ctrl-down", settle_ms, mode))
+        try:
+            yield
+        finally:
+            events.append(("ctrl-up", settle_ms, mode))
+
+    monkeypatch.setattr(winput, "hold_ctrl", held_ctrl)
+    monkeypatch.setattr(
+        winput,
+        "left_click",
+        lambda hold_ms: events.append(("left", fake_mouse["pos"], hold_ms)),
+    )
+    monkeypatch.setattr(
+        winput,
+        "ctrl_left_click",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("CTRL must not be toggled around each slot")
+        ),
+    )
+    grid = ScriptedGrid([full(), empty(), empty()])
+
+    transfer(grid, cfg, log=lambda *_: None)
+
+    assert events[0] == ("ctrl-down", 45, "both")
+    assert events[-1] == ("ctrl-up", 45, "both")
+    clicks = [event for event in events if event[0] == "left"]
+    assert len(clicks) == 4
+    assert not any(event[0] == "ctrl-down" for event in events[1:-1])
+
+
 def test_a_custom_delay_can_be_used_between_clicks(cfg, click, monkeypatch):
     sleeps = []
     monkeypatch.setattr(transfer_module.time, "sleep", sleeps.append)
@@ -175,6 +214,23 @@ def test_ctrl_is_released_even_when_the_click_raises(monkeypatch):
     with pytest.raises(RuntimeError):
         winput.ctrl_right_click()
     assert ("key", winput.SC_LCONTROL, True) in sent, "CTRL was left down"
+
+
+def test_held_ctrl_is_released_when_a_pass_raises(monkeypatch):
+    sent = []
+
+    def fake_send(*inputs):
+        for item in inputs:
+            sent.append(bool(item.ki.dwFlags & winput.KEYEVENTF_KEYUP))
+
+    monkeypatch.setattr(winput, "_send", fake_send)
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with winput.hold_ctrl():
+            raise RuntimeError("boom")
+
+    assert sent == [False, True]
 
 
 def test_stops_when_the_game_stops_being_the_focused_window(cfg, click, fake_mouse, monkeypatch):

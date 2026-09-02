@@ -36,10 +36,57 @@ class Stopped(RuntimeError):
     """A cycle could not complete, with the reason as the message."""
 
 
+DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS = 3
+
+
 def _moved(report: Report, what: str) -> int:
     if report.result is Result.STALLED and report.moved == 0:
         raise Stopped(f"{what} moved nothing at all - {report}")
     return report.moved
+
+
+def _withdraw_and_close(cfg: Config, withdraw, close_stash, log=print) -> int:
+    """Withdraw, recovering if a missed CTRL leaves an item on the cursor.
+
+    With an item attached, the first Escape returns it to its stash slot instead
+    of closing the panel. A failed close is therefore useful evidence: rescan
+    and retry the transfer while the stash is still verifiably open. This also
+    covers the last visible item: a grid can look empty while that item is still
+    attached to the cursor.
+    """
+    attempts = max(
+        int(cfg.data.get("withdraw_recovery_attempts", DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS)),
+        1,
+    )
+    report = withdraw()
+    withdrawn = report.moved
+
+    for attempt in range(1, attempts + 1):
+        control.check()
+        log("  closing the stash" if attempt == 1 else "  closing the stash again")
+        if close_stash():
+            _moved(report, "the withdraw")
+            return max(withdrawn, report.moved)
+
+        if attempt >= attempts:
+            break
+
+        # Even a report with no visible slots left can still be carrying its
+        # final item on the cursor. The failed Escape may just have returned it,
+        # so always rescan rather than trusting the previous occupancy count.
+        log(
+            "  the failed close may have returned an item from the cursor; "
+            "rescanning and retrying the withdraw"
+        )
+        control.check()
+        report = withdraw()
+        withdrawn = max(withdrawn, report.moved)
+
+    raise Stopped(
+        "the stash would not close after recovery attempts, and using an item needs "
+        "it shut - with the stash open the same gesture moves the item instead of "
+        "using it."
+    )
 
 
 def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
@@ -147,15 +194,7 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
         confirm(seen_token)
 
         control.check()
-        withdrawn = _moved(withdraw(), "the withdraw")
-
-        control.check()
-        log("  closing the stash")
-        if not close_stash():
-            raise Stopped(
-                "the stash would not close, and using an item needs it shut - with the "
-                "stash open the same gesture moves the item instead of using it."
-            )
+        withdrawn = _withdraw_and_close(cfg, withdraw, close_stash, log=log)
 
         control.check()
         log("  opening the inventory")

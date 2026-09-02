@@ -44,18 +44,17 @@ class NotFocused(RuntimeError):
 
 
 def make_click(cfg: Config, button: str | None = None):
-    """The click as configured.
+    """The mouse half of the configured transfer gesture.
 
     CTRL+LMB is what moves an item. CTRL+RMB is Drop, per the game's own legend,
     which is why aiming the right button at a slot with the stash open does
-    nothing at all - the game receives it and has nothing to do with it.
+    nothing at all - the game receives it and has nothing to do with it. The
+    modifier itself is held once around the complete pass by :func:`transfer`.
     """
     button = button or cfg.data.get("click_button", "left")
-    fn = winput.ctrl_right_click if button == "right" else winput.ctrl_left_click
+    fn = winput.right_click if button == "right" else winput.left_click
     hold = int(cfg.timing("button_hold_ms"))
-    settle = int(cfg.timing("ctrl_settle_ms"))
-    mode = cfg.data.get("ctrl_mode", "both")
-    return lambda: fn(hold_ms=hold, settle_ms=settle, mode=mode)
+    return lambda: fn(hold_ms=hold)
 
 
 def park(cfg: Config) -> None:
@@ -90,7 +89,8 @@ def transfer(
     an item covers moves the whole item, and its other cells simply read empty
     on the next pass.
     """
-    if click is None:
+    hold_modifier = click is None
+    if hold_modifier:
         click = make_click(cfg)
     if max_passes is None:
         max_passes = int(cfg.timing("max_passes"))
@@ -146,14 +146,26 @@ def transfer(
         # right after `move_to` only ever compares the cursor against the
         # position just given to it, and so can never fire.
         commanded: tuple[int, int] | None = None
-        for row, col in source.cells(before):
-            control.check(commanded)
-            x, y = source.cell_center(row, col)
-            winput.move_to(x, y)
-            time.sleep(move_settle)
-            click()
-            commanded = (x, y)
-            time.sleep(click_delay + random.uniform(0, jitter))
+
+        def click_cells() -> None:
+            nonlocal commanded
+            for row, col in source.cells(before):
+                control.check(commanded)
+                x, y = source.cell_center(row, col)
+                winput.move_to(x, y)
+                time.sleep(move_settle)
+                click()
+                commanded = (x, y)
+                time.sleep(click_delay + random.uniform(0, jitter))
+
+        if hold_modifier:
+            settle = int(cfg.timing("ctrl_settle_ms"))
+            mode = cfg.data.get("ctrl_mode", "both")
+            with winput.hold_ctrl(settle_ms=settle, mode=mode):
+                click_cells()
+        else:
+            # Custom clicks are used for item opening, where CTRL must stay up.
+            click_cells()
         control.check(commanded)
 
         park(cfg)

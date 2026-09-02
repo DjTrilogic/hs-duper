@@ -8,6 +8,7 @@ hardware scancode for CTRL.
 
 import ctypes
 import time
+from contextlib import contextmanager
 from ctypes import wintypes
 
 if ctypes.sizeof(ctypes.c_void_p) == 8:
@@ -208,6 +209,27 @@ def ctrl_right_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both")
 
 def ctrl_left_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both") -> None:
     _modified_click(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, hold_ms, settle_ms, mode)
+
+
+@contextmanager
+def hold_ctrl(settle_ms: int = 45, mode: str = "both"):
+    """Keep CTRL down for a whole group of mouse clicks.
+
+    Bulk transfers are more reliable when they look like the physical gesture:
+    press CTRL once, click every item, then release it. Toggling the modifier
+    around every individual click gives the game one opportunity per slot to
+    miss CTRL-down and interpret that click as a plain pick-up instead.
+
+    The release remains unconditional so F12, a focus failure or any other
+    exception cannot leave CTRL held on the desktop.
+    """
+    try:
+        _send(_ctrl(up=False, mode=mode))
+        time.sleep(settle_ms / 1000)
+        yield
+        time.sleep(settle_ms / 1000)
+    finally:
+        _send(_ctrl(up=True, mode=mode))
 
 
 def _plain_click(down: int, up: int, hold_ms: int = 70) -> None:

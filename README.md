@@ -196,7 +196,12 @@ at your own instance instead.
 - **F12** is checked before every click and while waiting on the network signal.
 - **Moving the mouse yourself stops the run.** The tool drives the same cursor
   you do.
-- CTRL is released in a `finally`, so an abort mid-click cannot leave it stuck.
+- CTRL is held once for the whole transfer pass, like the physical gesture,
+  instead of being toggled for every slot. It is released in a `finally`, so an
+  abort mid-pass cannot leave it stuck.
+- If a missed modifier leaves an item on the cursor, the first Escape returns
+  it to the stash. hs-duper detects that the panel stayed open, rescans, retries
+  the withdrawal, and only then tries to close it again.
 - A blank capture is treated as a failure, never as an empty grid.
 
 ---
@@ -235,6 +240,7 @@ at your own instance instead.
 | `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
 | `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
 | `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |
+| `withdraw_recovery_attempts` | maximum withdraw/close recovery attempts after a possible cursor pick-up (default: 3) |
 | `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |

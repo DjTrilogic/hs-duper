@@ -209,6 +209,60 @@ def test_receiver_stops_if_the_stash_will_not_close(cfg):
     assert "use" not in side.calls
 
 
+def test_receiver_retries_withdraw_when_escape_returns_a_carried_item(cfg):
+    side = Receiver(GO)
+    reports = iter([
+        report(1, Result.STALLED, left=17),
+        report(18),
+    ])
+    closes = iter([False, True])
+    logs = []
+
+    def withdraw():
+        side.calls.append("withdraw")
+        return next(reports)
+
+    def close_stash():
+        side.calls.append("close")
+        return next(closes)
+
+    side.withdraw = withdraw
+    side.close_stash = close_stash
+    cycles = run_receiver(
+        cfg, 1,
+        wait_ready=side.wait_ready,
+        ensure_stash=side.ensure_stash,
+        see_items=side.see_items,
+        confirm=side.confirm,
+        withdraw=side.withdraw,
+        close_stash=side.close_stash,
+        open_inventory=side.open_inventory,
+        use_all=side.use_all,
+        log=logs.append,
+    )
+
+    assert side.calls == [
+        "wait", "ensure_stash", "see", "confirm:hsd-seen",
+        "withdraw", "close", "withdraw", "close", "open_inventory", "use",
+    ]
+    assert cycles[0].withdrew == 18
+    assert any("returned an item from the cursor" in line for line in logs)
+
+
+def test_receiver_rescans_even_when_the_last_item_was_on_the_cursor(cfg):
+    side = Receiver(GO)
+    closes = iter([False, True])
+    reports = iter([report(1), report(1)])
+    side.withdraw = lambda: side.calls.append("withdraw") or next(reports)
+    side.close_stash = lambda: side.calls.append("close") or next(closes)
+
+    cycles = side.run(cfg)
+
+    assert side.calls.count("withdraw") == 2
+    assert side.calls.count("close") == 2
+    assert cycles[0].withdrew == 1
+
+
 def test_receiver_opens_inventory_before_using_items(cfg):
     side = Receiver(GO, inventory_opens=False)
     with pytest.raises(Stopped, match="inventory would not open"):
