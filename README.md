@@ -22,12 +22,27 @@ One cycle, with both machines running hs-duper:
 | 5 | withdraws the stash back | withdraws the same items |
 | 6 | | closes the stash, opens the inventory with `I`, then uses and verifies every item |
 
+### The receiver can be slow, and that is fine
+
+The receiver spends the end of each cycle off the wire, withdrawing and using
+the previous batch one click at a time. The sender's next go signal lands during
+that gap — it is **not** lost. The receiver reconnects asking for everything
+since the last message it saw, so the signal is replayed when it comes back, and
+a signal it has already acted on will not fire a second cycle.
+
+What this does cost is the sender's patience. It publishes, then waits
+`timing.confirm_timeout_ms` for the reply, and that wait has to cover the
+receiver finishing the previous batch before it can even look at the new one —
+tens of seconds for a full inventory. The default is 3 minutes. **Every cycle
+logs what it actually waited** (`confirmed after 12.4s`), so tune from real
+numbers rather than guessing.
+
 The receiver's cycle ends with the stash **closed** and the inventory open. It
-reopens the stash only when the next go signal arrives, at step 3. That is
-deliberate: a stash panel left open across cycles can be showing the previous
-cycle's contents, so watching it would be watching a stale view and confirming
-against items that are not the ones just deposited. Opened fresh, what it shows
-is what is actually there.
+reopens only when the next go signal arrives, at step 3. That is deliberate: a
+panel left open across cycles can be showing the previous cycle's contents, so
+watching it would be watching a stale view and confirming against items that
+are not the ones just deposited. Opened fresh, what it shows is what is
+actually there.
 
 Steps 3 and 4 are a handshake, and they matter. Without them the sender
 announces and withdraws immediately, on the assumption that the receiver got
@@ -176,6 +191,47 @@ over a solid block of items also reads as full. `scan` clicks nothing, ever.
 Give the receiver the same topic with `hsduper link <topic>`. `ping` proves the
 whole round trip — a publish returning 200 only proves something accepted it.
 
+### Hosting the signal yourself
+
+The public relay caps anonymous use at **250 messages a day**, and a cycle costs
+two — so a long run hits the wall. That cap is what keeps a free service
+affordable, so the fix is to stop needing it rather than to work around it.
+
+One of your two machines can host the signal:
+
+```powershell
+.\.venv\Scripts\python.exe -m hsduper relay        # on the host machine
+```
+
+Then point **both** machines at it in `config.json`:
+
+```json
+{ "notify": { "base": "http://<host-machine>:8737", "topic": "<the shared topic>" } }
+```
+
+No limits, no third party, nothing to pay. The catch is reachability: the two of
+you are on different networks, so the relay's port has to be reachable from the
+other machine. Either forward the port on the host's router, run the relay on a
+box you both can reach, or put a free tunnel in front of it.
+
+Messages live in memory and are kept for an hour — long enough to cover a
+receiver that is off the wire doing panel work, and there is nothing to clean up
+afterwards.
+
+The relay has no authentication: anyone who can reach the port and knows the
+topic can publish. The topic is a long random string, which is the same
+protection the public service gives you.
+
+If you point at an instance that does have auth, put the credentials in
+`notify`:
+
+```json
+{ "notify": { "token": "tk_..." } }
+{ "notify": { "user": "me", "password": "..." } }
+```
+
+### The public relay
+
 The relay defaults to `https://ntfy.sh`, which is free and needs no account.
 Only a short token crosses it: no account, no character, nothing about the game.
 **The topic name is the only secret**, which is why it is a long random string —
@@ -225,6 +281,7 @@ at your own instance instead.
 | `pact sender\|receiver [n]` | run the cycle |
 | `link [topic]` / `ping` / `watch` / `await` | the signal topic: set it, test it, observe it |
 | `stats` | show the latest receiver session and cumulative item-opening totals |
+| `relay [port]` | host the signal on this machine instead of a public service |
 | `click [what]` / `hover` / `doctor` | input diagnostics |
 | `listen` / `say` | read and write Blood Pact chat (diagnostics only) |
 
@@ -237,7 +294,8 @@ at your own instance instead.
 | | |
 | --- | --- |
 | `timing.after_ready_ms` | extra pause before the sender's own withdraw — the overlap dial |
-| `timing.confirm_timeout_ms` | how long each side waits on the other before giving up |
+| `timing.confirm_timeout_ms` | how long each side waits on the other. Must cover the receiver finishing the previous batch — see above |
+| `timing.inventory_wait_ms` | how long the sender waits for the inventory to show the items the last withdraw brought back |
 | `seen_token` | the receiver's confirmation text |
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
@@ -252,6 +310,7 @@ at your own instance instead.
 | `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |
+| `notify.token` or `notify.user`/`password` | credentials, for a relay that wants them |
 | `ctrl_mode` | how CTRL is delivered: `scancode` (default), `both`, or `vk` |
 
 ---
@@ -265,12 +324,15 @@ at your own instance instead.
 | **cursor moves, nothing happens** | `hover` tests whether the game sees the cursor at all; `click sweep` tries each button and reports which lands; `doctor` reports focus and privilege |
 | **run refuses to start** | an anchor is missing or a panel is closed. It is refusing on purpose — see Safety |
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
-| **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
+| **"the receiver never confirmed"** | either it did not see the items (check its `scan` of the stash) or it was still using the last batch — the message says how long it waited |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
+| **"the inventory is empty"** | nothing to deposit. If the last withdraw did bring items back, the panel had not caught up — raise `inventory_wait_ms` |
+| **"moved nothing at all"** | a transfer found its source empty. It stops rather than treating an empty source as a completed step |
 | **"the stash would not open"** | each `F` press is checked repeatedly and retried; run `calibrate anchors` after upgrading so title detection uses the brightness-independent template |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
 | **"the inventory would not open"** | the standalone inventory differs from the one shown beside the stash; run `calibrate anchors` and mark both versions when prompted |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
+| **rate limited on ntfy.sh** | 250 messages/day for anonymous use, and a cycle costs two. Host the relay yourself — see above |
 
 ---
 
@@ -301,9 +363,10 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-122 tests: grid geometry and occupancy against synthetic frames, the transfer
-loop against a scripted grid, the anchor rules, both role sequences, the chat
-reader, the notifier's reconnect and duplicate handling, and the command table.
+The test suite covers grid geometry and occupancy against synthetic frames, the
+transfer loop against a scripted grid, the anchor rules, both role sequences, the chat
+reader, the notifier's reconnect and duplicate handling, the command table, and
+the built-in relay driven by the real client over a real socket.
 
 ## Status
 

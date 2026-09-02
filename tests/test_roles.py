@@ -32,10 +32,16 @@ def no_abort():
 
 
 class Sender:
-    def __init__(self, deposits, withdraws, confirmed=True, stash_opens=True):
+    def __init__(self, deposits, withdraws, confirmed=True, stash_opens=True,
+                 has_items=True):
         self.deposits, self.withdraws = list(deposits), list(withdraws)
         self.confirmed, self.stash_opens = confirmed, stash_opens
+        self.has_items = has_items
         self.calls = []
+
+    def have_items(self):
+        self.calls.append("have_items")
+        return self.has_items
 
     def ensure_stash(self):
         self.calls.append("ensure_stash")
@@ -58,6 +64,7 @@ class Sender:
 
     def run(self, cfg, cycles=1):
         return run_sender(cfg, cycles, ensure_stash=self.ensure_stash,
+                          have_items=self.have_items,
                           deposit=self.deposit, announce=self.announce,
                           wait_seen=self.wait_seen, withdraw=self.withdraw,
                           log=lambda *_: None)
@@ -68,8 +75,8 @@ def test_sender_waits_for_confirmation_before_withdrawing(cfg):
     receiver got there, and when it had not the cycle was silently wasted."""
     side = Sender([report(60)], [report(60)])
     cycles = side.run(cfg)
-    assert side.calls == ["ensure_stash", "deposit", "announce:hsd-ready",
-                          "wait_seen", "withdraw"]
+    assert side.calls == ["ensure_stash", "have_items", "deposit",
+                          "announce:hsd-ready", "wait_seen", "withdraw"]
     assert str(cycles[0]) == "cycle 1: deposited 60, withdrew 60"
 
 
@@ -106,7 +113,7 @@ def test_sender_honours_the_abort_before_announcing(cfg):
     side.deposit = deposit
     with pytest.raises(control.Aborted):
         side.run(cfg)
-    assert side.calls == ["ensure_stash", "deposit"]
+    assert side.calls == ["ensure_stash", "have_items", "deposit"]
 
 
 class Receiver:
@@ -381,3 +388,30 @@ def test_receiver_opens_the_stash_before_looking_for_the_items(cfg):
     with pytest.raises(Stopped, match="would not open"):
         side.run(cfg)
     assert "see" not in side.calls
+
+
+def test_sender_does_not_announce_a_deposit_it_did_not_make(cfg):
+    """The bug seen live: cycle 2's deposit found the inventory empty, reported
+    DONE because there was nothing to move, and the sender announced anyway -
+    sending the receiver to look for items nobody had put there."""
+    side = Sender([report(0)], [report(60)])
+    with pytest.raises(Stopped, match="moved nothing"):
+        side.run(cfg)
+    assert not any(call.startswith("announce") for call in side.calls)
+
+
+def test_sender_waits_for_the_inventory_before_calling_it_empty(cfg):
+    """The items arrive at the end of the previous cycle and the panel does not
+    necessarily show them the instant the withdraw returns."""
+    side = Sender([report(60)], [report(60)], has_items=False)
+    with pytest.raises(Stopped, match="inventory is empty"):
+        side.run(cfg)
+    assert "deposit" not in side.calls
+
+
+def test_a_receiver_withdraw_that_moves_nothing_stops_the_cycle(cfg):
+    side = Receiver(GO)
+    side.withdraw = lambda: (side.calls.append("withdraw"), report(0))[1]
+    with pytest.raises(Stopped, match="moved nothing"):
+        side.run(cfg)
+    assert "use" not in side.calls

@@ -40,7 +40,15 @@ DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS = 3
 
 
 def _moved(report: Report, what: str) -> int:
-    if report.result is Result.STALLED and report.moved == 0:
+    """The count, or a stop.
+
+    Zero is a failure whatever the result says. A transfer whose source scans
+    as empty reports DONE - correctly, there was nothing to move - and that
+    used to pass for a successful step: the sender would announce a deposit it
+    had not made, and the receiver would be sent looking for items nobody put
+    there.
+    """
+    if report.moved == 0:
         raise Stopped(f"{what} moved nothing at all - {report}")
     return report.moved
 
@@ -128,8 +136,8 @@ def _withdraw_and_close(
     )
 
 
-def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
-               wait_seen, withdraw, log=print):
+def run_sender(cfg: Config, cycles: int, *, ensure_stash, have_items, deposit,
+               announce, wait_seen, withdraw, log=print):
     """deposit -> announce -> wait for the receiver -> withdraw.
 
     The wait is the point. Announcing and withdrawing straight away assumes the
@@ -148,6 +156,18 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
         if not ensure_stash():
             raise Stopped("the stash is not open and would not open - stand next to it")
 
+        # The items land in the inventory at the end of the previous cycle, and
+        # the panel does not necessarily show them the instant the withdraw
+        # returns. Depositing straight away can scan an inventory that is only
+        # briefly empty, which is not the same thing as having nothing to send.
+        control.check()
+        if not have_items():
+            raise Stopped(
+                "the inventory is empty - there is nothing to deposit. If the last "
+                "withdraw did bring items back, raise timing.inventory_wait_ms; the "
+                "panel may just not have caught up."
+            )
+
         control.check()
         log("  depositing")
         deposited = _moved(deposit(), "the deposit")
@@ -158,12 +178,21 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
 
         control.check()
         log("  waiting for the receiver to confirm it can see them")
-        if not wait_seen():
+        started = time.monotonic()
+        confirmed = wait_seen()
+        waited = time.monotonic() - started
+        if not confirmed:
             raise Stopped(
-                "the receiver never confirmed. The items are in the stash - it is safe "
-                "to withdraw them by hand, but the cycle did not happen."
+                f"the receiver never confirmed, after {waited:.0f}s. The items are in "
+                "the stash - it is safe to withdraw them by hand, but the cycle did not "
+                "happen. If the receiver was simply still busy using the last batch, "
+                "raise timing.confirm_timeout_ms."
             )
-        log("  confirmed")
+        # Printed every cycle because it is the number that decides how patient
+        # the sender has to be: the receiver spends the gap withdrawing and
+        # using the previous batch, and how long that takes depends on how many
+        # items there are.
+        log(f"  confirmed after {waited:.1f}s")
         if gap:
             time.sleep(gap)
 

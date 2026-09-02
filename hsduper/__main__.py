@@ -15,7 +15,8 @@ winput.set_dpi_aware()
 from pynput import keyboard  # noqa: E402
 
 import numpy as np  # noqa: E402
-from . import calibrate, capture, chat, control, doctor, notify, panels, roles, signal, stats  # noqa: E402
+from . import (calibrate, capture, chat, control, doctor, notify, panels, relay,  # noqa: E402
+               roles, signal, stats)  # noqa: E402
 from .config import GRID_NAMES, Config  # noqa: E402
 from .grid import BlankCapture  # noqa: E402
 from .transfer import (NotFocused, PanelClosed, Report, Result, park,  # noqa: E402
@@ -38,6 +39,7 @@ USAGE = """hs-duper
   python -m hsduper await [seconds]        wait for one
   python -m hsduper watch [seconds]        print everything on the topic
   python -m hsduper stats                  show receiver opening statistics
+  python -m hsduper relay [port]           host the signal yourself
   python -m hsduper pact sender|receiver [n] [--dry-run] [--no-use]
   python -m hsduper run                    arm the hotkeys and wait
 
@@ -564,6 +566,13 @@ def cmd_await(args: list[str]) -> int:
     return 0
 
 
+def cmd_relay(args: list[str]) -> int:
+    """Host the signal on this machine instead of a public service."""
+    port = int(args[0]) if args else relay.DEFAULT_PORT
+    relay.serve(port)
+    return 0
+
+
 def cmd_pact(args: list[str]) -> int:
     flags = {a for a in args if a.startswith("--")}
     rest = [a for a in args if not a.startswith("--")]
@@ -632,6 +641,9 @@ def cmd_pact(args: list[str]) -> int:
             roles.run_sender(
                 cfg, cycles,
                 ensure_stash=keep_open,
+                have_items=(lambda: True) if dry else
+                (lambda: wait_until_occupied(
+                    inventory, cfg, timeout=cfg.timing("inventory_wait_ms") / 1000) > 0),
                 deposit=move(inventory),
                 announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
                 if dry else link.announce,
@@ -717,6 +729,8 @@ def main(argv: list[str]) -> int:
             return cmd_watch(rest)
         if command == "stats":
             return cmd_stats()
+        if command == "relay":
+            return cmd_relay(rest)
         if command == "pact":
             return cmd_pact(rest)
         if command == "run":
