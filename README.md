@@ -14,7 +14,7 @@ One cycle, with both machines running hs-duper:
 
 | | sender | receiver |
 | --- | --- | --- |
-| 0 | opens the stash if it is not already open | waiting |
+| 0 | starts with the stash open | waiting |
 | 1 | deposits the inventory into the stash | |
 | 2 | publishes the go signal | receives it |
 | 3 | waiting for confirmation | opens the stash, then watches it until the items are visible |
@@ -114,10 +114,13 @@ hover highlight before the pixels are captured, so it is expected.
 | anchors | the INVENTORY and BLOOD PACT STASH titles. These are what prove a panel is open before any click — see Safety |
 | stash object | `calibrate pact` — where to click in the world to open the stash |
 
-**Both roles** need the stash object. Each side opens the stash itself rather
-than assuming it is open: the tool is started with the panel in whatever state
-you left it, and the receiver spends part of every cycle with it deliberately
-shut. Stand where you can click it:
+The **receiver** needs the stash object: it opens the stash each time the go
+signal arrives, having shut it to use the previous batch.
+
+The **sender** starts with the stash already open, so it normally never clicks
+the object - but calibrate it anyway. It is the difference between recovering
+from a stash that closed unexpectedly and stopping dead. Stand where you can
+click it:
 
 ```powershell
 .\.venv\Scripts\python.exe -m hsduper calibrate pact
