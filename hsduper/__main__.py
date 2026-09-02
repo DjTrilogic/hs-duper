@@ -608,6 +608,9 @@ def cmd_pact(args: list[str]) -> int:
             roles.run_sender(
                 cfg, cycles,
                 ensure_stash=keep_open,
+                have_items=(lambda: True) if dry else
+                (lambda: wait_until_occupied(
+                    inventory, cfg, timeout=cfg.timing("inventory_wait_ms") / 1000) > 0),
                 deposit=move(inventory),
                 announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
                 if dry else link.announce,

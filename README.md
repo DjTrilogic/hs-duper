@@ -226,6 +226,7 @@ at your own instance instead.
 | --- | --- |
 | `timing.after_ready_ms` | extra pause before the sender's own withdraw — the overlap dial |
 | `timing.confirm_timeout_ms` | how long each side waits on the other. Must cover the receiver finishing the previous batch — see above |
+| `timing.inventory_wait_ms` | how long the sender waits for the inventory to show the items the last withdraw brought back |
 | `seen_token` | the receiver's confirmation text |
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
@@ -247,6 +248,8 @@ at your own instance instead.
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
 | **"the receiver never confirmed"** | either it did not see the items (check its `scan` of the stash) or it was still using the last batch — the message says how long it waited |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
+| **"the inventory is empty"** | nothing to deposit. If the last withdraw did bring items back, the panel had not caught up — raise `inventory_wait_ms` |
+| **"moved nothing at all"** | a transfer found its source empty. It stops rather than treating an empty source as a completed step |
 | **"the stash would not open"** | the character has drifted away from it, or `calibrate pact` was never run |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
@@ -274,7 +277,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-102 tests: grid geometry and occupancy against synthetic frames, the transfer
+105 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

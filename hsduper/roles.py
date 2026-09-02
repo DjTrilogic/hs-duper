@@ -37,13 +37,21 @@ class Stopped(RuntimeError):
 
 
 def _moved(report: Report, what: str) -> int:
-    if report.result is Result.STALLED and report.moved == 0:
+    """The count, or a stop.
+
+    Zero is a failure whatever the result says. A transfer whose source scans
+    as empty reports DONE - correctly, there was nothing to move - and that
+    used to pass for a successful step: the sender would announce a deposit it
+    had not made, and the receiver would be sent looking for items nobody put
+    there.
+    """
+    if report.moved == 0:
         raise Stopped(f"{what} moved nothing at all - {report}")
     return report.moved
 
 
-def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
-               wait_seen, withdraw, log=print):
+def run_sender(cfg: Config, cycles: int, *, ensure_stash, have_items, deposit,
+               announce, wait_seen, withdraw, log=print):
     """deposit -> announce -> wait for the receiver -> withdraw.
 
     The wait is the point. Announcing and withdrawing straight away assumes the
@@ -61,6 +69,18 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
         log(f"[cycle {n}/{cycles}] making sure the stash is open")
         if not ensure_stash():
             raise Stopped("the stash is not open and would not open - stand next to it")
+
+        # The items land in the inventory at the end of the previous cycle, and
+        # the panel does not necessarily show them the instant the withdraw
+        # returns. Depositing straight away can scan an inventory that is only
+        # briefly empty, which is not the same thing as having nothing to send.
+        control.check()
+        if not have_items():
+            raise Stopped(
+                "the inventory is empty - there is nothing to deposit. If the last "
+                "withdraw did bring items back, raise timing.inventory_wait_ms; the "
+                "panel may just not have caught up."
+            )
 
         control.check()
         log("  depositing")

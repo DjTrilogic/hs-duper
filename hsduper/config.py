@@ -50,6 +50,9 @@ DEFAULT_TIMING = {
     # inventory, so a minute is not the safe margin it looks like. Each cycle
     # logs what it actually waited; tune from that rather than from this.
     "confirm_timeout_ms": 180000,
+    # How long the sender waits for the inventory to show the items the last
+    # withdraw brought back, before calling it empty.
+    "inventory_wait_ms": 15000,
 }
 
 #: Phase 2. The room is a specific pact's id, not a fixed channel number, so it
