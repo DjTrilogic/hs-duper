@@ -3,6 +3,7 @@
 import numpy as np
 
 from hsduper import calibrate
+from hsduper.config import Config
 
 
 def test_inventory_size_defaults_to_six_by_fifteen(monkeypatch):
@@ -47,3 +48,33 @@ def test_sample_metric_parks_cursor_before_capture(monkeypatch):
         ("sleep", calibrate.SAMPLE_SETTLE_SECONDS),
         ("grab", (84, 189, 33, 22)),
     ]
+
+
+def test_anchor_calibration_parks_the_game_cursor_before_capture(monkeypatch):
+    events = []
+    frame = np.zeros((calibrate.ANCHOR_H, calibrate.ANCHOR_W, 3), dtype=np.uint8)
+    frame[5:15, 15:65] = 180
+    cfg = Config.blank()
+
+    monkeypatch.setattr(calibrate, "mark", lambda _: (100, 200))
+    monkeypatch.setattr(
+        calibrate.winput, "move_to", lambda x, y: events.append(("move", x, y))
+    )
+    monkeypatch.setattr(
+        calibrate.time, "sleep", lambda seconds: events.append(("sleep", seconds))
+    )
+
+    def grab(region):
+        events.append(("grab", region))
+        return frame
+
+    monkeypatch.setattr(calibrate.capture, "grab", grab)
+
+    calibrate.calibrate_anchor(cfg, "stash", "BLOOD PACT STASH")
+
+    assert events == [
+        ("move", *calibrate.SAMPLE_PARK_POINT),
+        ("sleep", calibrate.SAMPLE_SETTLE_SECONDS),
+        ("grab", (60, 190, calibrate.ANCHOR_W, calibrate.ANCHOR_H)),
+    ]
+    assert "luminance_template" in cfg.data["anchors"]["stash"]

@@ -126,6 +126,11 @@ def calibrate_grid(name: str) -> Grid:
 def calibrate_anchor(cfg: Config, name: str, what: str) -> None:
     point = mark(f"The {what} title text.")
     rect = (point[0] - ANCHOR_W // 2, point[1] - ANCHOR_H // 2, ANCHOR_W, ANCHOR_H)
+    # Hero Siege draws its own cursor into the captured frame. Keeping it over
+    # the title would bake the cursor shape into the anchor template, which is
+    # absent during later checks and makes an open panel look closed.
+    winput.move_to(*SAMPLE_PARK_POINT)
+    time.sleep(SAMPLE_SETTLE_SECONDS)
     frame = capture.grab(rect)
     colour = frame.reshape(-1, 3).mean(axis=0)
     luminance = np.rint(capture.luminance(frame)).astype(np.uint8)

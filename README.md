@@ -108,9 +108,9 @@ You confirm the row and column counts at the console, then hover things in game
 and press **F8**. The defaults are 6x15 for the inventory and 18x17 for the
 stash; press Enter to accept them or type a different value. ESC cancels.
 
-When the brightness of an empty or occupied slot is sampled, calibration moves
-the cursor briefly to the top-left of the screen. This clears the game's bright
-hover highlight before the pixels are captured, so it is expected.
+After marking a slot or panel title, calibration moves the cursor briefly to
+the top-left of the screen before capturing. This clears slot highlights and
+keeps Hero Siege's drawn cursor out of title templates, so it is expected.
 
 | what | why |
 | --- | --- |
