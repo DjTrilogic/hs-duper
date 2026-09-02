@@ -61,3 +61,17 @@ def use_all(cfg: Config, grid, log=print):
         ),
         log=log,
     )
+
+
+def ensure_stash_open(cfg: Config, log=print) -> bool:
+    """Open the stash if it is not already open.
+
+    Both sides start their tool with the panel in whatever state the player
+    left it, and the receiver spends part of every cycle with it deliberately
+    shut. Assuming it is open makes the first cycle depend on how the session
+    happened to begin - so each side checks and opens rather than assumes.
+    """
+    if cfg.anchor_ok("stash"):
+        return True
+    log("  stash is closed - opening it")
+    return open_stash(cfg, log=log)

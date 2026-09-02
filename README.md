@@ -14,9 +14,10 @@ One cycle, with both machines running hs-duper:
 
 | | sender | receiver |
 | --- | --- | --- |
-| 1 | deposits the inventory into the stash | waiting |
+| 0 | opens the stash if it is not already open | waiting |
+| 1 | deposits the inventory into the stash | |
 | 2 | publishes the go signal | receives it |
-| 3 | waiting for confirmation | watches the stash until the items are visible |
+| 3 | waiting for confirmation | opens the stash, then watches it until the items are visible |
 | 4 | | publishes the confirmation |
 | 5 | withdraws the stash back | withdraws the same items |
 | 6 | | closes the stash, uses the items, reopens it |
@@ -111,8 +112,12 @@ hover highlight before the pixels are captured, so it is expected.
 | `stash` | the Blood Pact stash grid |
 | park point | somewhere the cursor can rest without raising a tooltip over a slot. Every capture is taken with it parked there |
 | anchors | the INVENTORY and BLOOD PACT STASH titles. These are what prove a panel is open before any click — see Safety |
+| stash object | `calibrate pact` — where to click in the world to open the stash |
 
-Receivers also need the stash object, since they close and reopen the panel:
+**Both roles** need the stash object. Each side opens the stash itself rather
+than assuming it is open: the tool is started with the panel in whatever state
+you left it, and the receiver spends part of every cycle with it deliberately
+shut. Stand where you can click it:
 
 ```powershell
 .\.venv\Scripts\python.exe -m hsduper calibrate pact
@@ -218,6 +223,7 @@ at your own instance instead.
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
 | **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
+| **"the stash would not open"** | the character has drifted away from it, or `calibrate pact` was never run |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
 
 ---
@@ -243,7 +249,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-96 tests: grid geometry and occupancy against synthetic frames, the transfer
+98 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

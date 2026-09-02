@@ -598,6 +598,8 @@ def cmd_pact(args: list[str]) -> int:
                 return Report(Result.DONE, 0, 0, 0)
             return act
 
+        keep_open = (lambda: True) if dry else (lambda: panels.ensure_stash_open(cfg))
+
         def move(grid):
             return nothing_happened(f"drain {grid.name}") if dry else (
                 lambda: transfer(grid, cfg))
@@ -605,6 +607,7 @@ def cmd_pact(args: list[str]) -> int:
         if role == "sender":
             roles.run_sender(
                 cfg, cycles,
+                ensure_stash=keep_open,
                 deposit=move(inventory),
                 announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
                 if dry else link.announce,
@@ -616,6 +619,7 @@ def cmd_pact(args: list[str]) -> int:
             roles.run_receiver(
                 cfg, cycles,
                 wait_ready=lambda: link.wait_for(lambda t: token in t, timeout=600.0),
+                ensure_stash=keep_open,
                 see_items=(lambda: True) if dry else
                 (lambda: wait_until_occupied(stash, cfg, timeout=confirm_wait) > 0),
                 confirm=(lambda t: print(f"    [dry run] would publish {t!r}"))

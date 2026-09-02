@@ -32,10 +32,14 @@ def no_abort():
 
 
 class Sender:
-    def __init__(self, deposits, withdraws, confirmed=True):
+    def __init__(self, deposits, withdraws, confirmed=True, stash_opens=True):
         self.deposits, self.withdraws = list(deposits), list(withdraws)
-        self.confirmed = confirmed
+        self.confirmed, self.stash_opens = confirmed, stash_opens
         self.calls = []
+
+    def ensure_stash(self):
+        self.calls.append("ensure_stash")
+        return self.stash_opens
 
     def deposit(self):
         self.calls.append("deposit")
@@ -53,7 +57,8 @@ class Sender:
         return self.withdraws.pop(0)
 
     def run(self, cfg, cycles=1):
-        return run_sender(cfg, cycles, deposit=self.deposit, announce=self.announce,
+        return run_sender(cfg, cycles, ensure_stash=self.ensure_stash,
+                          deposit=self.deposit, announce=self.announce,
                           wait_seen=self.wait_seen, withdraw=self.withdraw,
                           log=lambda *_: None)
 
@@ -63,7 +68,8 @@ def test_sender_waits_for_confirmation_before_withdrawing(cfg):
     receiver got there, and when it had not the cycle was silently wasted."""
     side = Sender([report(60)], [report(60)])
     cycles = side.run(cfg)
-    assert side.calls == ["deposit", "announce:hsd-ready", "wait_seen", "withdraw"]
+    assert side.calls == ["ensure_stash", "deposit", "announce:hsd-ready",
+                          "wait_seen", "withdraw"]
     assert str(cycles[0]) == "cycle 1: deposited 60, withdrew 60"
 
 
@@ -100,13 +106,18 @@ def test_sender_honours_the_abort_before_announcing(cfg):
     side.deposit = deposit
     with pytest.raises(control.Aborted):
         side.run(cfg)
-    assert side.calls == ["deposit"]
+    assert side.calls == ["ensure_stash", "deposit"]
 
 
 class Receiver:
-    def __init__(self, event, reopens=True, sees=True):
+    def __init__(self, event, reopens=True, sees=True, stash_opens=True):
         self.event, self.reopens, self.sees = event, reopens, sees
+        self.stash_opens = stash_opens
         self.calls = []
+
+    def ensure_stash(self):
+        self.calls.append("ensure_stash")
+        return self.stash_opens
 
     def wait_ready(self):
         self.calls.append("wait")
@@ -136,6 +147,7 @@ class Receiver:
 
     def run(self, cfg, cycles=1):
         return run_receiver(cfg, cycles, wait_ready=self.wait_ready,
+                            ensure_stash=self.ensure_stash,
                             see_items=self.see_items, confirm=self.confirm,
                             withdraw=self.withdraw, close_stash=self.close_stash,
                             use_all=self.use_all, open_stash=self.open_stash,
@@ -148,8 +160,8 @@ GO = ChatEvent("Partner", 7216, "hsd-ready", "999", 1)
 def test_receiver_sees_the_items_before_it_confirms(cfg):
     side = Receiver(GO)
     side.run(cfg)
-    assert side.calls == ["wait", "see", "confirm:hsd-seen", "withdraw",
-                          "close", "use", "open"]
+    assert side.calls == ["wait", "ensure_stash", "see", "confirm:hsd-seen",
+                          "withdraw", "close", "use", "open"]
 
 
 def test_receiver_does_not_confirm_items_it_cannot_see(cfg):
@@ -197,3 +209,21 @@ def test_ready_ignores_unrelated_chatter(cfg):
 
 def test_ready_matches_the_token_inside_a_longer_line(cfg):
     assert ready_matcher(cfg)(ChatEvent("Partner", 7216, "ok hsd-ready go", "2", 0))
+
+
+def test_sender_opens_the_stash_before_the_first_deposit(cfg):
+    """The tool is started with the panel in whatever state the player left it,
+    so the first cycle must not depend on how the session happened to begin."""
+    side = Sender([report(60)], [report(60)], stash_opens=False)
+    with pytest.raises(Stopped, match="would not open"):
+        side.run(cfg)
+    assert "deposit" not in side.calls
+
+
+def test_receiver_opens_the_stash_before_looking_for_the_items(cfg):
+    """It spends part of every cycle with the stash deliberately shut, so it
+    cannot assume the panel is back when the next go signal arrives."""
+    side = Receiver(GO, stash_opens=False)
+    with pytest.raises(Stopped, match="would not open"):
+        side.run(cfg)
+    assert "see" not in side.calls

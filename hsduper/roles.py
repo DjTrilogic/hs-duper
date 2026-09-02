@@ -42,8 +42,8 @@ def _moved(report: Report, what: str) -> int:
     return report.moved
 
 
-def run_sender(cfg: Config, cycles: int, *, deposit, announce, wait_seen, withdraw,
-               log=print):
+def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
+               wait_seen, withdraw, log=print):
     """deposit -> announce -> wait for the receiver -> withdraw.
 
     The wait is the point. Announcing and withdrawing straight away assumes the
@@ -58,7 +58,12 @@ def run_sender(cfg: Config, cycles: int, *, deposit, announce, wait_seen, withdr
 
     for n in range(1, cycles + 1):
         control.check()
-        log(f"[cycle {n}/{cycles}] depositing")
+        log(f"[cycle {n}/{cycles}] making sure the stash is open")
+        if not ensure_stash():
+            raise Stopped("the stash is not open and would not open - stand next to it")
+
+        control.check()
+        log("  depositing")
         deposited = _moved(deposit(), "the deposit")
 
         control.check()
@@ -93,8 +98,8 @@ def run_sender(cfg: Config, cycles: int, *, deposit, announce, wait_seen, withdr
     return done
 
 
-def run_receiver(cfg: Config, cycles: int, *, wait_ready, see_items, confirm,
-                 withdraw, close_stash, use_all, open_stash, log=print):
+def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_items,
+                 confirm, withdraw, close_stash, use_all, open_stash, log=print):
     """wait -> see the items -> confirm -> withdraw -> shut, use, reopen.
 
     `see_items` is what makes the confirmation worth anything: it watches the
@@ -112,6 +117,10 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, see_items, confirm,
         if event is None:
             raise Stopped("the sender never announced - nothing to do")
         log(f"  heard {event}")
+
+        control.check()
+        if not ensure_stash():
+            raise Stopped("the stash is not open and would not open - stand next to it")
 
         control.check()
         log("  watching the stash for the items")
