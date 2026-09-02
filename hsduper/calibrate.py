@@ -179,10 +179,18 @@ def run(parts: list[str]) -> None:
 
     if "anchors" in wanted:
         print("\n=== panel anchors ===")
-        print("  These are what stops a pass running with a panel closed, which would drop")
-        print("  your items on the floor instead of moving them. Both panels open, please.")
-        calibrate_anchor(cfg, "inventory", "INVENTORY")
+        print("  These stop a pass from running against the wrong panel state.")
+        print("  First leave both the INVENTORY and BLOOD PACT STASH open.")
+        calibrate_anchor(
+            cfg, "inventory_stash_open", "INVENTORY shown with the stash open"
+        )
         calibrate_anchor(cfg, "stash", "BLOOD PACT STASH")
+        print()
+        print("  Now press ESC to close the stash, then I to open the inventory by itself.")
+        print("  This is a different inventory window and needs its own anchor.")
+        calibrate_anchor(
+            cfg, "inventory_standalone", "INVENTORY shown by itself"
+        )
         cfg.save()
 
     print(f"\nWritten to {PATH}. Check it with `python -m hsduper scan`.")

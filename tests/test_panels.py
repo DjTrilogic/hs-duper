@@ -27,7 +27,7 @@ class PanelConfig:
 
 class InventoryConfig(PanelConfig):
     def anchor_ok(self, name):
-        assert name == "inventory"
+        assert name == "inventory_standalone"
         return next(self.anchor_reads)
 
 
@@ -112,5 +112,5 @@ def test_use_all_right_clicks_without_ctrl(monkeypatch):
 
     assert result.result is Result.DONE
     assert clicks == [("right", 73)]
-    assert transfer_args["anchors"] == ("inventory",)
+    assert transfer_args["anchors"] == ("inventory_standalone",)
     assert transfer_args["forbidden"] == ("stash",)

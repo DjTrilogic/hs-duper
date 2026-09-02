@@ -72,7 +72,7 @@ def park(cfg: Config) -> None:
 def transfer(
     source: Grid,
     cfg: Config,
-    anchors: tuple[str, ...] = ("inventory", "stash"),
+    anchors: tuple[str, ...] = ("inventory_stash_open", "stash"),
     forbidden: tuple[str, ...] = (),
     click=None,
     log=print,

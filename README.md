@@ -118,7 +118,7 @@ keeps Hero Siege's drawn cursor out of title templates, so it is expected.
 | `inventory` | the bag grid. It does **not** move when the stash opens — what appears above it is the equipment panel |
 | `stash` | the Blood Pact stash grid |
 | park point | somewhere the cursor can rest without raising a tooltip over a slot. Every capture is taken with it parked there |
-| anchors | the INVENTORY and BLOOD PACT STASH titles. These are what prove a panel is open before any click — see Safety |
+| anchors | the INVENTORY title with the stash open, the BLOOD PACT STASH title, then the standalone INVENTORY title after `ESC` and `I`. These prove the correct panel layout is open before any click — see Safety |
 | stash object | `calibrate pact` — where to click in the world to open the stash |
 
 The **receiver** needs the stash object: it opens the stash each time the go
@@ -239,6 +239,7 @@ at your own instance instead.
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
 | **"the stash would not open"** | each click is checked repeatedly and retried; run `calibrate anchors` after upgrading so title detection uses the brightness-independent template |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
+| **"the inventory would not open"** | the standalone inventory differs from the one shown beside the stash; run `calibrate anchors` and mark both versions when prompted |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
 
 ---

@@ -92,17 +92,23 @@ def test_an_uncalibrated_anchor_fails_closed(flat_screen):
     A dropped item can be picked back up; a used one cannot."""
     cfg = Config({"anchors": {}})
     assert not cfg.anchor_ok("stash")
-    assert cfg.missing_anchors(["inventory", "stash"]) == ["inventory", "stash"]
+    assert cfg.missing_anchors(["inventory_stash_open", "stash"]) == [
+        "inventory_stash_open", "stash"
+    ]
 
 
 def test_missing_anchors_names_only_the_bad_ones(flat_screen):
     cfg = Config({
         "anchors": {
             "stash": {"rect": [10, 10, 80, 20], "color": [120, 40, 40]},
-            "inventory": {"rect": [10, 40, 80, 20], "color": [0, 0, 0]},
+            "inventory_standalone": {
+                "rect": [10, 40, 80, 20], "color": [0, 0, 0]
+            },
         }
     })
-    assert cfg.missing_anchors(["stash", "inventory"]) == ["inventory"]
+    assert cfg.missing_anchors(["stash", "inventory_standalone"]) == [
+        "inventory_standalone"
+    ]
 
 
 def test_a_configured_timing_wins_even_if_it_is_not_a_known_default():

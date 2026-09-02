@@ -64,7 +64,7 @@ def open_stash(cfg: Config, log=print) -> bool:
 
 def open_inventory(cfg: Config, log=print) -> bool:
     """Open the inventory with I and confirm its anchor appeared."""
-    if cfg.anchor_ok("inventory"):
+    if cfg.anchor_ok("inventory_standalone"):
         log("  inventory already open")
         return True
 
@@ -72,7 +72,7 @@ def open_inventory(cfg: Config, log=print) -> bool:
     timeout_ms = cfg.timing("panel_open_timeout_ms")
     for attempt in range(1, attempts + 1):
         winput.press_inventory()
-        if _wait_for_anchor(cfg, "inventory", timeout_ms):
+        if _wait_for_anchor(cfg, "inventory_standalone", timeout_ms):
             log(f"  inventory open (attempt {attempt})")
             return True
         if attempt < attempts:
@@ -89,7 +89,7 @@ def use_all(cfg: Config, grid, log=print):
     """
     return transfer(
         grid, cfg,
-        anchors=("inventory",),
+        anchors=("inventory_standalone",),
         forbidden=("stash",),
         click=lambda: winput.right_click(int(cfg.timing("button_hold_ms"))),
         log=log,

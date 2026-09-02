@@ -78,3 +78,26 @@ def test_anchor_calibration_parks_the_game_cursor_before_capture(monkeypatch):
         ("grab", (60, 190, calibrate.ANCHOR_W, calibrate.ANCHOR_H)),
     ]
     assert "luminance_template" in cfg.data["anchors"]["stash"]
+
+
+def test_anchor_wizard_calibrates_both_inventory_windows(monkeypatch):
+    cfg = Config.blank()
+    saved = []
+    anchors = []
+    monkeypatch.setattr(calibrate.Config, "exists", lambda: True)
+    monkeypatch.setattr(calibrate.Config, "load", lambda: cfg)
+    monkeypatch.setattr(cfg, "save", lambda: saved.append(True))
+    monkeypatch.setattr(
+        calibrate,
+        "calibrate_anchor",
+        lambda _cfg, name, what: anchors.append((name, what)),
+    )
+
+    calibrate.run(["anchors"])
+
+    assert [name for name, _ in anchors] == [
+        "inventory_stash_open",
+        "stash",
+        "inventory_standalone",
+    ]
+    assert saved == [True]
