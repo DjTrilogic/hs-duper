@@ -110,9 +110,11 @@ def test_sender_honours_the_abort_before_announcing(cfg):
 
 
 class Receiver:
-    def __init__(self, event, sees=True, stash_opens=True, closes=True):
+    def __init__(self, event, sees=True, stash_opens=True, closes=True,
+                 inventory_opens=True):
         self.event, self.sees = event, sees
         self.stash_opens, self.closes = stash_opens, closes
+        self.inventory_opens = inventory_opens
         self.calls = []
 
     def ensure_stash(self):
@@ -138,6 +140,10 @@ class Receiver:
         self.calls.append("close")
         return self.closes
 
+    def open_inventory(self):
+        self.calls.append("open_inventory")
+        return self.inventory_opens
+
     def use_all(self):
         self.calls.append("use")
         return report(60)
@@ -147,6 +153,7 @@ class Receiver:
                             ensure_stash=self.ensure_stash,
                             see_items=self.see_items, confirm=self.confirm,
                             withdraw=self.withdraw, close_stash=self.close_stash,
+                            open_inventory=self.open_inventory,
                             use_all=self.use_all, log=lambda *_: None)
 
 
@@ -157,7 +164,7 @@ def test_receiver_sees_the_items_before_it_confirms(cfg):
     side = Receiver(GO)
     side.run(cfg)
     assert side.calls == ["wait", "ensure_stash", "see", "confirm:hsd-seen",
-                          "withdraw", "close", "use"]
+                          "withdraw", "close", "open_inventory", "use"]
 
 
 def test_receiver_does_not_confirm_items_it_cannot_see(cfg):
@@ -193,6 +200,14 @@ def test_receiver_stops_if_the_stash_will_not_close(cfg):
     side = Receiver(GO, closes=False)
     with pytest.raises(Stopped, match="would not close"):
         side.run(cfg)
+    assert "use" not in side.calls
+
+
+def test_receiver_opens_inventory_before_using_items(cfg):
+    side = Receiver(GO, inventory_opens=False)
+    with pytest.raises(Stopped, match="inventory would not open"):
+        side.run(cfg)
+    assert side.calls[-2:] == ["close", "open_inventory"]
     assert "use" not in side.calls
 
 

@@ -117,11 +117,10 @@ def test_gives_up_after_max_passes(cfg, click):
 
 
 def test_refuses_to_click_when_a_panel_is_closed(cfg, click, fake_mouse):
-    """CTRL+RMB with no stash open is Drop, so this must stop before the first
-    click rather than warn and continue."""
+    """A pass must stop before the first click when its required panel is shut."""
     cfg.missing_anchors = lambda names: ["stash"]
     grid = ScriptedGrid([full(), empty()])
-    with pytest.raises(PanelClosed, match="drops items on the ground"):
+    with pytest.raises(PanelClosed, match="required panel state cannot be verified"):
         transfer(grid, cfg, click=click, log=lambda *_: None)
     assert fake_mouse["clicks"] == []
 

@@ -20,13 +20,14 @@ One cycle, with both machines running hs-duper:
 | 3 | waiting for confirmation | opens the stash, then watches it until the items are visible |
 | 4 | | publishes the confirmation |
 | 5 | withdraws the stash back | withdraws the same items |
-| 6 | | closes the stash and uses the items — and leaves it shut |
+| 6 | | closes the stash, opens the inventory with `I`, then uses the items |
 
-The receiver's cycle ends with the stash **closed**. It reopens only when the
-next go signal arrives, at step 3. That is deliberate: a panel left open across
-cycles can be showing the previous cycle's contents, so watching it would be
-watching a stale view and confirming against items that are not the ones just
-deposited. Opened fresh, what it shows is what is actually there.
+The receiver's cycle ends with the stash **closed** and the inventory open. It
+reopens the stash only when the next go signal arrives, at step 3. That is
+deliberate: a stash panel left open across cycles can be showing the previous
+cycle's contents, so watching it would be watching a stale view and confirming
+against items that are not the ones just deposited. Opened fresh, what it shows
+is what is actually there.
 
 Steps 3 and 4 are a handshake, and they matter. Without them the sender
 announces and withdraws immediately, on the assumption that the receiver got
@@ -215,9 +216,9 @@ at your own instance instead.
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
-| `timing.panel_open_timeout_ms` | how long each stash-open attempt polls for the panel anchor |
-| `timing.panel_poll_ms` | interval between anchor checks while opening the stash |
-| `panel_open_attempts` | maximum stash-open attempts (default: 3) |
+| `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
+| `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
+| `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |
 | `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |

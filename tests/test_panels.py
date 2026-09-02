@@ -25,6 +25,12 @@ class PanelConfig:
         return self.timings[name]
 
 
+class InventoryConfig(PanelConfig):
+    def anchor_ok(self, name):
+        assert name == "inventory"
+        return next(self.anchor_reads)
+
+
 def test_open_stash_polls_until_a_late_anchor_appears(monkeypatch):
     cfg = PanelConfig([False, False, True])
     clicks = []
@@ -60,6 +66,25 @@ def test_open_stash_stops_after_the_configured_attempts(monkeypatch):
 
     assert not panels.open_stash(cfg, log=lambda *_: None)
     assert clicks == ["click", "click", "click"]
+
+
+def test_open_inventory_presses_i_and_waits_for_its_anchor(monkeypatch):
+    cfg = InventoryConfig([False, False, True])
+    presses = []
+    monkeypatch.setattr(panels.winput, "press_inventory", lambda: presses.append("i"))
+    monkeypatch.setattr(panels.time, "sleep", lambda *_: None)
+
+    assert panels.open_inventory(cfg, log=lambda *_: None)
+    assert presses == ["i"]
+
+
+def test_open_inventory_stops_after_the_configured_attempts(monkeypatch):
+    cfg = InventoryConfig([False, False, False, False], attempts=3, timeout_ms=0)
+    presses = []
+    monkeypatch.setattr(panels.winput, "press_inventory", lambda: presses.append("i"))
+
+    assert not panels.open_inventory(cfg, log=lambda *_: None)
+    assert presses == ["i", "i", "i"]
 
 
 def test_use_all_right_clicks_without_ctrl(monkeypatch):

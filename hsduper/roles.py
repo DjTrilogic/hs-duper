@@ -2,9 +2,9 @@
 
 The sender never touches the panels: it deposits, announces, withdraws, and
 goes round again with the stash open throughout. The receiver has to shut the
-stash to use what it took and open it again afterwards, which is the fragile
-half - opening needs a click on the stash object in the world, so it depends on
-the character still standing next to it.
+stash, open the inventory, and use what it took. It opens the stash again on
+the next cycle, which is the fragile half: that needs a click on the stash
+object in the world, so it depends on the character still standing next to it.
 
 Every step is injected rather than reached for, so the sequence can be tested
 without a game.
@@ -99,8 +99,8 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
 
 
 def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_items,
-                 confirm, withdraw, close_stash, use_all, log=print):
-    """wait -> open the stash -> see the items -> confirm -> withdraw -> shut, use.
+                 confirm, withdraw, close_stash, open_inventory, use_all, log=print):
+    """wait -> open stash -> see -> confirm -> withdraw -> shut -> open inventory -> use.
 
     A cycle ends with the stash shut and does not reopen it. Reopening only
     when the next go signal arrives is what makes `see_items` trustworthy: a
@@ -154,6 +154,13 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
             raise Stopped(
                 "the stash would not close, and using an item needs it shut - with the "
                 "stash open the same gesture moves the item instead of using it."
+            )
+
+        control.check()
+        log("  opening the inventory")
+        if not open_inventory():
+            raise Stopped(
+                "the inventory would not open. Stopping before trying to use any items."
             )
 
         control.check()

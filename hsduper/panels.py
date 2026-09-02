@@ -62,6 +62,25 @@ def open_stash(cfg: Config, log=print) -> bool:
     return False
 
 
+def open_inventory(cfg: Config, log=print) -> bool:
+    """Open the inventory with I and confirm its anchor appeared."""
+    if cfg.anchor_ok("inventory"):
+        log("  inventory already open")
+        return True
+
+    attempts = max(int(cfg.data.get("panel_open_attempts", DEFAULT_OPEN_ATTEMPTS)), 1)
+    timeout_ms = cfg.timing("panel_open_timeout_ms")
+    for attempt in range(1, attempts + 1):
+        winput.press_inventory()
+        if _wait_for_anchor(cfg, "inventory", timeout_ms):
+            log(f"  inventory open (attempt {attempt})")
+            return True
+        if attempt < attempts:
+            log(f"  inventory not detected after attempt {attempt}/{attempts} - retrying")
+    log(f"  inventory did not open after {attempts} attempt(s)")
+    return False
+
+
 def use_all(cfg: Config, grid, log=print):
     """RMB every item in the inventory, with the stash shut.
 

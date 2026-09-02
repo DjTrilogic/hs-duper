@@ -124,8 +124,8 @@ def transfer(
         missing = cfg.missing_anchors(list(anchors))
         if missing:
             raise PanelClosed(
-                f"{', '.join(missing)} is not open. Refusing to click: CTRL+RMB with no stash "
-                "open drops items on the ground instead of moving them."
+                f"{', '.join(missing)} is not open. Refusing to click because the required "
+                "panel state cannot be verified."
             )
 
         before = source.occupied()

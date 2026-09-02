@@ -626,6 +626,7 @@ def cmd_pact(args: list[str]) -> int:
                 if dry else link.announce,
                 withdraw=move(stash),
                 close_stash=(lambda: True) if dry else lambda: panels.close_stash(cfg),
+                open_inventory=(lambda: True) if dry else lambda: panels.open_inventory(cfg),
                 use_all=nothing_happened("use every item in the inventory")
                 if no_use else lambda: panels.use_all(cfg, inventory),
             )
