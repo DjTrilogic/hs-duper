@@ -1,5 +1,7 @@
 """Everything machine-specific lives in config.json, written by `calibrate`."""
 
+import base64
+import binascii
 import json
 from pathlib import Path
 
@@ -67,6 +69,7 @@ DEFAULT_PHASE2 = {
 #: panel is treated as not open. Generous, because the panel is drawn over a
 #: moving scene and its titles pick up a little of what is behind them.
 ANCHOR_TOLERANCE = 26
+ANCHOR_CORRELATION = 0.65
 
 #: How far the cursor may sit from where it was last commanded before this is
 #: read as the user having taken the mouse back.
@@ -148,6 +151,32 @@ class Config:
         if not anchor:
             return False
         frame = capture.grab(tuple(anchor["rect"]))
+
+        # New calibrations compare the shape of the title text. Normalized
+        # correlation ignores a global brightness/contrast change while still
+        # requiring the same letters in the same place. The old mean-colour
+        # check remains as a compatibility fallback for existing config files.
+        encoded = anchor.get("luminance_template")
+        if encoded is not None:
+            try:
+                raw = base64.b64decode(encoded, validate=True)
+                height, width = frame.shape[:2]
+                wanted = np.frombuffer(raw, dtype=np.uint8)
+                if wanted.size != height * width:
+                    return False
+                wanted = wanted.astype(float).reshape(height, width)
+            except (binascii.Error, TypeError, ValueError):
+                return False
+            seen_luminance = capture.luminance(frame).astype(float)
+            wanted -= wanted.mean()
+            seen_luminance -= seen_luminance.mean()
+            scale = np.linalg.norm(wanted) * np.linalg.norm(seen_luminance)
+            if scale <= 1e-9:
+                return False
+            correlation = float(np.sum(wanted * seen_luminance) / scale)
+            threshold = self.data.get("anchor_correlation", ANCHOR_CORRELATION)
+            return correlation >= threshold
+
         seen = frame.reshape(-1, 3).mean(axis=0)
         want = np.array(anchor["color"], dtype=float)
         return bool(np.linalg.norm(seen - want) <= self.data.get("anchor_tolerance", ANCHOR_TOLERANCE))

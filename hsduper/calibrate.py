@@ -6,6 +6,7 @@ typed at the console are asked for up front, while you are still looking at the
 console, so that every step needing the game in front of you is a keypress.
 """
 
+import base64
 import math
 import threading
 import time
@@ -125,12 +126,15 @@ def calibrate_grid(name: str) -> Grid:
 def calibrate_anchor(cfg: Config, name: str, what: str) -> None:
     point = mark(f"The {what} title text.")
     rect = (point[0] - ANCHOR_W // 2, point[1] - ANCHOR_H // 2, ANCHOR_W, ANCHOR_H)
-    colour = capture.grab(rect).reshape(-1, 3).mean(axis=0)
+    frame = capture.grab(rect)
+    colour = frame.reshape(-1, 3).mean(axis=0)
+    luminance = np.rint(capture.luminance(frame)).astype(np.uint8)
     cfg.data.setdefault("anchors", {})[name] = {
         "rect": list(rect),
         "color": [round(float(v), 2) for v in colour],
+        "luminance_template": base64.b64encode(luminance.tobytes()).decode("ascii"),
     }
-    print(f"     anchor colour {[round(float(v)) for v in colour]}")
+    print(f"     anchor colour {[round(float(v)) for v in colour]} and text template stored")
 
 
 def run(parts: list[str]) -> None:

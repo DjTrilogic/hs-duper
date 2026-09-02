@@ -218,6 +218,7 @@ at your own instance instead.
 | `timing.panel_open_timeout_ms` | how long each stash-open attempt polls for the panel anchor |
 | `timing.panel_poll_ms` | interval between anchor checks while opening the stash |
 | `panel_open_attempts` | maximum stash-open attempts (default: 3) |
+| `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |
 | `ctrl_mode` | how CTRL is delivered: `both`, `vk`, `scancode` |
@@ -235,7 +236,7 @@ at your own instance instead.
 | **`stalled` after moving nothing** | the destination is full, or the tab won't take those items |
 | **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
-| **"the stash would not open"** | each click is checked repeatedly and retried; if the panel is unusually slow, raise `panel_open_timeout_ms`, otherwise check the character position and `calibrate pact` |
+| **"the stash would not open"** | each click is checked repeatedly and retried; run `calibrate anchors` after upgrading so title detection uses the brightness-independent template |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
 
