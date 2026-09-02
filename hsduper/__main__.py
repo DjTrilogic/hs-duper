@@ -14,7 +14,8 @@ winput.set_dpi_aware()
 from pynput import keyboard  # noqa: E402
 
 import numpy as np  # noqa: E402
-from . import calibrate, capture, chat, control, doctor, notify, panels, roles, signal  # noqa: E402
+from . import (calibrate, capture, chat, control, doctor, notify, panels, relay,  # noqa: E402
+               roles, signal)  # noqa: E402
 from .config import GRID_NAMES, Config  # noqa: E402
 from .grid import BlankCapture  # noqa: E402
 from .transfer import (NotFocused, PanelClosed, Report, Result, park, transfer,  # noqa: E402
@@ -36,6 +37,7 @@ USAGE = """hs-duper
   python -m hsduper ping [text]            publish a go signal
   python -m hsduper await [seconds]        wait for one
   python -m hsduper watch [seconds]        print everything on the topic
+  python -m hsduper relay [port]           host the signal yourself
   python -m hsduper pact sender|receiver [n] [--dry-run] [--no-use]
   python -m hsduper run                    arm the hotkeys and wait
 
@@ -562,6 +564,13 @@ def cmd_await(args: list[str]) -> int:
     return 0
 
 
+def cmd_relay(args: list[str]) -> int:
+    """Host the signal on this machine instead of a public service."""
+    port = int(args[0]) if args else relay.DEFAULT_PORT
+    relay.serve(port)
+    return 0
+
+
 def cmd_pact(args: list[str]) -> int:
     flags = {a for a in args if a.startswith("--")}
     rest = [a for a in args if not a.startswith("--")]
@@ -678,6 +687,8 @@ def main(argv: list[str]) -> int:
             return cmd_await(rest)
         if command == "watch":
             return cmd_watch(rest)
+        if command == "relay":
+            return cmd_relay(rest)
         if command == "pact":
             return cmd_pact(rest)
         if command == "run":

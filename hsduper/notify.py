@@ -10,6 +10,7 @@ the topic can read and publish to it, which is why the topic is a long random
 string rather than something memorable.
 """
 
+import base64
 import json
 import secrets
 import time
@@ -25,23 +26,44 @@ def new_topic() -> str:
     return "hsduper-" + secrets.token_urlsafe(24)
 
 
-def _http_post(url: str, body: bytes, timeout: float) -> None:
+def auth_headers(settings: dict) -> dict:
+    """Authorization for a private instance or an account.
+
+    A self-hosted server is the way past ntfy.sh's limits - they exist to keep
+    a free service affordable, and they are plain configuration on a server of
+    your own. Either form of credential works.
+    """
+    token = settings.get("token")
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    user = settings.get("user")
+    if user:
+        pair = f"{user}:{settings.get('password', '')}".encode()
+        return {"Authorization": "Basic " + base64.b64encode(pair).decode()}
+    return {}
+
+
+def _headers(extra: dict | None = None) -> dict:
+    return {"User-Agent": USER_AGENT, **(extra or {})}
+
+
+def _http_post(url: str, body: bytes, timeout: float, headers: dict | None = None) -> None:
     request = urllib.request.Request(
-        url, data=body, method="POST", headers={"User-Agent": USER_AGENT}
+        url, data=body, method="POST", headers=_headers(headers)
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         response.read()
 
 
-def _http_get(url: str, timeout: float) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _http_get(url: str, timeout: float, headers: dict | None = None) -> str:
+    request = urllib.request.Request(url, headers=_headers(headers))
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read().decode("utf-8", "replace")
 
 
-def _http_stream(url: str, timeout: float):
+def _http_stream(url: str, timeout: float, headers: dict | None = None):
     """A held-open connection, yielding one line per message."""
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, headers=_headers(headers))
     return urllib.request.urlopen(request, timeout=timeout)
 
 
@@ -56,24 +78,26 @@ class NtfyNotifier:
 
     def __init__(self, topic: str, base: str = DEFAULT_BASE,
                  get=_http_get, post=_http_post, stream=_http_stream,
-                 timeout: float = 10.0):
+                 timeout: float = 10.0, headers: dict | None = None):
         self.topic = topic
         self.base = base.rstrip("/")
         self._get = get
         self._post = post
         self._stream = stream
         self.timeout = timeout
+        self.headers = headers or {}
         self._seen: set[str] = set()
         self._since = "10s"
 
     def announce(self, token: str) -> None:
-        self._post(f"{self.base}/{self.topic}", token.encode("utf-8"), self.timeout)
+        self._post(f"{self.base}/{self.topic}", token.encode("utf-8"), self.timeout,
+                   self.headers)
 
     def poll(self) -> list[str]:
         """Messages that have arrived since the last poll."""
         url = f"{self.base}/{self.topic}/json?poll=1&since={self._since}"
         try:
-            raw = self._get(url, self.timeout)
+            raw = self._get(url, self.timeout, self.headers)
         except (urllib.error.URLError, OSError, TimeoutError):
             # A failed poll is a lost second, not a lost signal: the next one
             # asks for the same window again.
@@ -148,7 +172,7 @@ class NtfyNotifier:
                 return None
             url = f"{self.base}/{self.topic}/json?since={self._since}"
             try:
-                stream = self._stream(url, min(remaining, 45.0))
+                stream = self._stream(url, min(remaining, 45.0), self.headers)
             except (urllib.error.URLError, OSError, TimeoutError):
                 time.sleep(min(reconnect_s, max(remaining, 0)))
                 continue
@@ -175,4 +199,5 @@ def from_config(cfg):
             "no notify topic set. Run `python -m hsduper link` to make one, and give "
             "the same topic to whoever is receiving."
         )
-    return NtfyNotifier(topic, settings.get("base", DEFAULT_BASE))
+    return NtfyNotifier(topic, settings.get("base", DEFAULT_BASE),
+                        headers=auth_headers(settings))

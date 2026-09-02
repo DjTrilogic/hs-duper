@@ -178,6 +178,47 @@ over a solid block of items also reads as full. `scan` clicks nothing, ever.
 Give the receiver the same topic with `hsduper link <topic>`. `ping` proves the
 whole round trip — a publish returning 200 only proves something accepted it.
 
+### Hosting the signal yourself
+
+The public relay caps anonymous use at **250 messages a day**, and a cycle costs
+two — so a long run hits the wall. That cap is what keeps a free service
+affordable, so the fix is to stop needing it rather than to work around it.
+
+One of your two machines can host the signal:
+
+```powershell
+.\.venv\Scripts\python.exe -m hsduper relay        # on the host machine
+```
+
+Then point **both** machines at it in `config.json`:
+
+```json
+{ "notify": { "base": "http://<host-machine>:8737", "topic": "<the shared topic>" } }
+```
+
+No limits, no third party, nothing to pay. The catch is reachability: the two of
+you are on different networks, so the relay's port has to be reachable from the
+other machine. Either forward the port on the host's router, run the relay on a
+box you both can reach, or put a free tunnel in front of it.
+
+Messages live in memory and are kept for an hour — long enough to cover a
+receiver that is off the wire doing panel work, and there is nothing to clean up
+afterwards.
+
+The relay has no authentication: anyone who can reach the port and knows the
+topic can publish. The topic is a long random string, which is the same
+protection the public service gives you.
+
+If you point at an instance that does have auth, put the credentials in
+`notify`:
+
+```json
+{ "notify": { "token": "tk_..." } }
+{ "notify": { "user": "me", "password": "..." } }
+```
+
+### The public relay
+
 The relay defaults to `https://ntfy.sh`, which is free and needs no account.
 Only a short token crosses it: no account, no character, nothing about the game.
 **The topic name is the only secret**, which is why it is a long random string —
@@ -213,6 +254,7 @@ at your own instance instead.
 | `deposit` / `withdraw` | one bulk transfer |
 | `pact sender\|receiver [n]` | run the cycle |
 | `link [topic]` / `ping` / `watch` / `await` | the signal topic: set it, test it, observe it |
+| `relay [port]` | host the signal on this machine instead of a public service |
 | `click [what]` / `hover` / `doctor` | input diagnostics |
 | `listen` / `say` | read and write Blood Pact chat (diagnostics only) |
 
@@ -233,6 +275,7 @@ at your own instance instead.
 | `timing.max_passes` | give-up limit per transfer |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |
+| `notify.token` or `notify.user`/`password` | credentials, for a relay that wants them |
 | `ctrl_mode` | how CTRL is delivered: `both`, `vk`, `scancode` |
 
 ---
@@ -253,6 +296,7 @@ at your own instance instead.
 | **"the stash would not open"** | the character has drifted away from it, or `calibrate pact` was never run |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
+| **rate limited on ntfy.sh** | 250 messages/day for anonymous use, and a cycle costs two. Host the relay yourself — see above |
 
 ---
 
@@ -277,9 +321,10 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-105 tests: grid geometry and occupancy against synthetic frames, the transfer
+120 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
-reader, the notifier's reconnect and duplicate handling, and the command table.
+reader, the notifier's reconnect and duplicate handling, the command table, and
+the built-in relay driven by the real client over a real socket.
 
 ## Status
 

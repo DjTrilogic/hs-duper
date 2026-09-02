@@ -16,9 +16,11 @@ class FakeHttp:
         self.responses = list(responses)
         self.posted = []
         self.urls = []
+        self.headers = []
 
-    def get(self, url, timeout):
+    def get(self, url, timeout, headers=None):
         self.urls.append(url)
+        self.headers.append(headers)
         if not self.responses:
             return ""
         nxt = self.responses.pop(0)
@@ -26,8 +28,9 @@ class FakeHttp:
             raise nxt
         return nxt
 
-    def post(self, url, body, timeout):
+    def post(self, url, body, timeout, headers=None):
         self.posted.append((url, body.decode()))
+        self.headers.append(headers)
 
 
 def notifier(http, **kw):
@@ -104,9 +107,11 @@ class FakeStream:
     def __init__(self, *connections):
         self.connections = list(connections)
         self.opened = []
+        self.headers = []
 
-    def open(self, url, timeout):
+    def open(self, url, timeout, headers=None):
         self.opened.append(url)
+        self.headers.append(headers)
         if not self.connections:
             raise TimeoutError("nothing more")
         nxt = self.connections.pop(0)
@@ -185,3 +190,36 @@ def test_an_already_consumed_signal_does_not_fire_a_second_cycle():
     n = streaming(stream)
     assert n.wait_for(lambda t: t == "hsd-ready", timeout=5) == "hsd-ready"
     assert n.wait_for(lambda t: t == "hsd-ready", timeout=0.3, reconnect_s=0.01) is None
+
+
+def test_a_token_becomes_a_bearer_header():
+    from hsduper.notify import auth_headers
+
+    assert auth_headers({"token": "tk_abc"}) == {"Authorization": "Bearer tk_abc"}
+
+
+def test_a_user_and_password_become_basic_auth():
+    from hsduper.notify import auth_headers
+
+    header = auth_headers({"user": "me", "password": "secret"})["Authorization"]
+    assert header.startswith("Basic ")
+    import base64
+    assert base64.b64decode(header.split()[1]).decode() == "me:secret"
+
+
+def test_no_credentials_means_no_header():
+    from hsduper.notify import auth_headers
+
+    assert auth_headers({}) == {}
+    assert auth_headers({"topic": "t", "base": "https://ntfy.sh"}) == {}
+
+
+def test_credentials_are_sent_on_every_call():
+    """A self-hosted instance is the way past the public relay's limits, and it
+    is usually behind auth - so publishing and listening both need them."""
+    http = FakeHttp(message("1", "hsd-ready"))
+    n = NtfyNotifier("t", base="https://example.test", get=http.get, post=http.post,
+                     headers={"Authorization": "Bearer tk_abc"})
+    n.announce("hsd-ready")
+    n.poll()
+    assert all(h == {"Authorization": "Bearer tk_abc"} for h in http.headers)
