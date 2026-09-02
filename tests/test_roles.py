@@ -110,9 +110,9 @@ def test_sender_honours_the_abort_before_announcing(cfg):
 
 
 class Receiver:
-    def __init__(self, event, reopens=True, sees=True, stash_opens=True):
-        self.event, self.reopens, self.sees = event, reopens, sees
-        self.stash_opens = stash_opens
+    def __init__(self, event, sees=True, stash_opens=True, closes=True):
+        self.event, self.sees = event, sees
+        self.stash_opens, self.closes = stash_opens, closes
         self.calls = []
 
     def ensure_stash(self):
@@ -136,22 +136,18 @@ class Receiver:
 
     def close_stash(self):
         self.calls.append("close")
+        return self.closes
 
     def use_all(self):
         self.calls.append("use")
         return report(60)
-
-    def open_stash(self):
-        self.calls.append("open")
-        return self.reopens
 
     def run(self, cfg, cycles=1):
         return run_receiver(cfg, cycles, wait_ready=self.wait_ready,
                             ensure_stash=self.ensure_stash,
                             see_items=self.see_items, confirm=self.confirm,
                             withdraw=self.withdraw, close_stash=self.close_stash,
-                            use_all=self.use_all, open_stash=self.open_stash,
-                            log=lambda *_: None)
+                            use_all=self.use_all, log=lambda *_: None)
 
 
 GO = ChatEvent("Partner", 7216, "hsd-ready", "999", 1)
@@ -161,7 +157,7 @@ def test_receiver_sees_the_items_before_it_confirms(cfg):
     side = Receiver(GO)
     side.run(cfg)
     assert side.calls == ["wait", "ensure_stash", "see", "confirm:hsd-seen",
-                          "withdraw", "close", "use", "open"]
+                          "withdraw", "close", "use"]
 
 
 def test_receiver_does_not_confirm_items_it_cannot_see(cfg):
@@ -174,12 +170,30 @@ def test_receiver_does_not_confirm_items_it_cannot_see(cfg):
     assert "withdraw" not in side.calls
 
 
-def test_receiver_stops_if_the_stash_does_not_reopen(cfg):
-    """A click on a world object: if the character drifted it fails, and the
-    next cycle would run with no stash at all."""
-    side = Receiver(GO, reopens=False)
-    with pytest.raises(Stopped, match="did not reopen"):
-        side.run(cfg, 2)
+def test_a_cycle_ends_with_the_stash_shut(cfg):
+    """It is reopened only when the next go signal arrives. A panel left open
+    across cycles can be showing the previous cycle's contents, so see_items
+    would be watching a stale view."""
+    side = Receiver(GO)
+    side.run(cfg)
+    assert side.calls[-1] == "use"
+    assert side.calls.count("ensure_stash") == 1
+
+
+def test_the_stash_is_opened_afresh_on_every_cycle(cfg):
+    side = Receiver(GO)
+    side.run(cfg, 3)
+    assert side.calls.count("ensure_stash") == 3
+    assert side.calls.count("close") == 3
+
+
+def test_receiver_stops_if_the_stash_will_not_close(cfg):
+    """Using an item needs the stash shut - with it open the same gesture moves
+    the item instead of using it."""
+    side = Receiver(GO, closes=False)
+    with pytest.raises(Stopped, match="would not close"):
+        side.run(cfg)
+    assert "use" not in side.calls
 
 
 def test_receiver_stops_when_no_one_announces(cfg):

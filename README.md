@@ -20,7 +20,13 @@ One cycle, with both machines running hs-duper:
 | 3 | waiting for confirmation | opens the stash, then watches it until the items are visible |
 | 4 | | publishes the confirmation |
 | 5 | withdraws the stash back | withdraws the same items |
-| 6 | | closes the stash, uses the items, reopens it |
+| 6 | | closes the stash and uses the items — and leaves it shut |
+
+The receiver's cycle ends with the stash **closed**. It reopens only when the
+next go signal arrives, at step 3. That is deliberate: a panel left open across
+cycles can be showing the previous cycle's contents, so watching it would be
+watching a stale view and confirming against items that are not the ones just
+deposited. Opened fresh, what it shows is what is actually there.
 
 Steps 3 and 4 are a handshake, and they matter. Without them the sender
 announces and withdraws immediately, on the assumption that the receiver got
@@ -227,6 +233,7 @@ at your own instance instead.
 | **"the receiver never confirmed"** | it did not see the items — check its `scan` of the stash, or raise `confirm_timeout_ms` |
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
 | **"the stash would not open"** | the character has drifted away from it, or `calibrate pact` was never run |
+| **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
 
 ---
@@ -252,7 +259,7 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-98 tests: grid geometry and occupancy against synthetic frames, the transfer
+100 tests: grid geometry and occupancy against synthetic frames, the transfer
 loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, and the command table.
 

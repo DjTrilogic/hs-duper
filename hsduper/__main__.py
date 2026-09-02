@@ -628,7 +628,6 @@ def cmd_pact(args: list[str]) -> int:
                 close_stash=(lambda: True) if dry else lambda: panels.close_stash(cfg),
                 use_all=nothing_happened("use every item in the inventory")
                 if no_use else lambda: panels.use_all(cfg, inventory),
-                open_stash=(lambda: True) if dry else lambda: panels.open_stash(cfg),
             )
     except (roles.Stopped, PanelClosed, NotFocused, BlankCapture) as exc:
         print(f"  stopped: {exc}")

@@ -99,13 +99,20 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, deposit, announce,
 
 
 def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_items,
-                 confirm, withdraw, close_stash, use_all, open_stash, log=print):
-    """wait -> see the items -> confirm -> withdraw -> shut, use, reopen.
+                 confirm, withdraw, close_stash, use_all, log=print):
+    """wait -> open the stash -> see the items -> confirm -> withdraw -> shut, use.
 
-    `see_items` is what makes the confirmation worth anything: it watches the
-    stash until the items are actually on screen, so the reply the sender waits
-    for is evidence rather than an assumption. Nothing is confirmed if they
-    never appear.
+    A cycle ends with the stash shut and does not reopen it. Reopening only
+    when the next go signal arrives is what makes `see_items` trustworthy: a
+    panel left open across cycles can be showing the previous cycle's contents,
+    so watching it would be watching a stale view and confirming against items
+    that are not the ones just deposited. Opened fresh, what it shows is what is
+    actually there.
+
+    `see_items` is what makes the confirmation worth anything at all - the
+    sender withdraws on the strength of it, so it has to be evidence off the
+    screen rather than an assumption. Nothing is confirmed if the items never
+    appear.
     """
     seen_token = cfg.data.get("seen_token", "hsd-seen")
     done = []
@@ -119,8 +126,12 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
         log(f"  heard {event}")
 
         control.check()
+        log("  opening the stash")
         if not ensure_stash():
-            raise Stopped("the stash is not open and would not open - stand next to it")
+            raise Stopped(
+                "the stash would not open - the character has probably drifted away "
+                "from it. Stopping rather than running a cycle with no stash."
+            )
 
         control.check()
         log("  watching the stash for the items")
@@ -139,21 +150,17 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
 
         control.check()
         log("  closing the stash")
-        close_stash()
+        if not close_stash():
+            raise Stopped(
+                "the stash would not close, and using an item needs it shut - with the "
+                "stash open the same gesture moves the item instead of using it."
+            )
 
         control.check()
         used = _moved(use_all(), "using the items")
 
-        control.check()
-        log("  reopening the stash")
-        if not open_stash():
-            raise Stopped(
-                "the stash did not reopen - the character has probably drifted away "
-                "from it. Stopping rather than running a cycle with no stash."
-            )
-
         cycle = Cycle(n, 0, withdrawn, used)
-        log(f"  {cycle}")
+        log(f"  {cycle} (stash left shut until the next signal)")
         done.append(cycle)
     return done
 
