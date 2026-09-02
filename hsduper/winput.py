@@ -49,6 +49,7 @@ SC_I = 0x17
 #: because a game reading either one will see it. The other two exist so a game
 #: that only believes one of them can be found by trying.
 CTRL_MODES = ("both", "scancode", "vk")
+DEFAULT_CTRL_MODE = "scancode"
 
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
@@ -187,6 +188,39 @@ def ensure_ctrl_down(
     )
 
 
+def _click_with_ctrl_held(
+    down: int, up: int, hold_ms: int, settle_ms: int, mode: str
+) -> None:
+    """Reassert CTRL and press a mouse button in one SendInput batch.
+
+    Windows confirming the key state does not guarantee that a game consuming
+    raw input has already associated the separate keyboard event with a later
+    mouse event. Repeating CTRL-down and LMB-down in the same input array keeps
+    their ordering adjacent for both the Windows and raw-input paths. CTRL is
+    intentionally not released here; the surrounding pass owns its lifetime.
+    """
+    ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
+    _send(*_ctrl_inputs(up=False, mode=mode), _mouse(down))
+    time.sleep(hold_ms / 1000)
+    _send(_mouse(up))
+
+
+def left_click_with_ctrl_held(
+    hold_ms: int = 70, settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE
+) -> None:
+    _click_with_ctrl_held(
+        MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, hold_ms, settle_ms, mode
+    )
+
+
+def right_click_with_ctrl_held(
+    hold_ms: int = 70, settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE
+) -> None:
+    _click_with_ctrl_held(
+        MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, hold_ms, settle_ms, mode
+    )
+
+
 def _unicode_key(char: str, up: bool = False) -> INPUT:
     flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if up else 0)
     return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, ord(char), flags, 0, 0))
@@ -250,7 +284,7 @@ def ctrl_left_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both") 
 
 
 @contextmanager
-def hold_ctrl(settle_ms: int = 45, mode: str = "both"):
+def hold_ctrl(settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE):
     """Keep CTRL down for a whole group of mouse clicks.
 
     Bulk transfers are more reliable when they look like the physical gesture:

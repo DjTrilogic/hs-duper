@@ -58,7 +58,21 @@ def _withdraw_and_close(cfg: Config, withdraw, close_stash, log=print) -> int:
         int(cfg.data.get("withdraw_recovery_attempts", DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS)),
         1,
     )
-    report = withdraw()
+    try:
+        report = withdraw()
+    except control.Aborted:
+        # An abort can land just after a plain pick-up was misinterpreted. CTRL
+        # is already released by transfer's finally block; use Escape only to
+        # put a carried item back, then once more to close the still-open stash.
+        # Cleanup must not call control.check(), because the abort is already
+        # set and this is precisely the safe work that remains to be done.
+        log("  abort cleanup: returning any cursor item and closing the stash")
+        try:
+            if not close_stash():
+                close_stash()
+        except Exception as exc:
+            log(f"  abort cleanup could not verify the stash: {exc}")
+        raise
     withdrawn = report.moved
 
     for attempt in range(1, attempts + 1):

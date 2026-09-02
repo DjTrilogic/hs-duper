@@ -151,7 +151,7 @@ def cmd_click(args: list[str]) -> int:
 
     hold = int(cfg.timing("button_hold_ms"))
     settle = int(cfg.timing("ctrl_settle_ms"))
-    mode = cfg.data.get("ctrl_mode", "both")
+    mode = cfg.data.get("ctrl_mode", winput.DEFAULT_CTRL_MODE)
 
     variants = {
         "left": ("plain LEFT (pick up)", lambda x, y: winput.left_click(hold_ms=hold)),

@@ -52,9 +52,13 @@ def make_click(cfg: Config, button: str | None = None):
     modifier itself is held once around the complete pass by :func:`transfer`.
     """
     button = button or cfg.data.get("click_button", "left")
-    fn = winput.right_click if button == "right" else winput.left_click
     hold = int(cfg.timing("button_hold_ms"))
-    return lambda: fn(hold_ms=hold)
+    settle = int(cfg.timing("ctrl_settle_ms"))
+    mode = cfg.data.get("ctrl_mode", winput.DEFAULT_CTRL_MODE)
+    if button == "right":
+        # Retained for the old diagnostic override. Normal transfers use LMB.
+        return lambda: winput.right_click_with_ctrl_held(hold, settle, mode)
+    return lambda: winput.left_click_with_ctrl_held(hold, settle, mode)
 
 
 def park(cfg: Config) -> None:
@@ -154,19 +158,13 @@ def transfer(
                 x, y = source.cell_center(row, col)
                 winput.move_to(x, y)
                 time.sleep(move_settle)
-                if hold_modifier:
-                    # Keep the pass-wide modifier, but also refresh its key-down
-                    # event and verify Windows' actual state immediately before
-                    # every click. Missing CTRL is dangerous: plain LMB picks an
-                    # item up and leaves it attached to the cursor.
-                    winput.ensure_ctrl_down(settle_ms=settle, mode=mode)
                 click()
                 commanded = (x, y)
                 time.sleep(click_delay + random.uniform(0, jitter))
 
         if hold_modifier:
             settle = int(cfg.timing("ctrl_settle_ms"))
-            mode = cfg.data.get("ctrl_mode", "both")
+            mode = cfg.data.get("ctrl_mode", winput.DEFAULT_CTRL_MODE)
             with winput.hold_ctrl(settle_ms=settle, mode=mode):
                 click_cells()
         else:

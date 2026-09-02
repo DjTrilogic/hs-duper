@@ -107,13 +107,10 @@ def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
     monkeypatch.setattr(winput, "hold_ctrl", held_ctrl)
     monkeypatch.setattr(
         winput,
-        "ensure_ctrl_down",
-        lambda *, settle_ms, mode: events.append(("ctrl-refresh", settle_ms, mode)),
-    )
-    monkeypatch.setattr(
-        winput,
-        "left_click",
-        lambda hold_ms: events.append(("left", fake_mouse["pos"], hold_ms)),
+        "left_click_with_ctrl_held",
+        lambda hold_ms, settle_ms, mode: events.append(
+            ("left", fake_mouse["pos"], hold_ms, settle_ms, mode)
+        ),
     )
     monkeypatch.setattr(
         winput,
@@ -126,11 +123,11 @@ def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
 
     transfer(grid, cfg, log=lambda *_: None)
 
-    assert events[0] == ("ctrl-down", 45, "both")
-    assert events[-1] == ("ctrl-up", 45, "both")
+    assert events[0] == ("ctrl-down", 45, "scancode")
+    assert events[-1] == ("ctrl-up", 45, "scancode")
     clicks = [event for event in events if event[0] == "left"]
     assert len(clicks) == 4
-    assert sum(event[0] == "ctrl-refresh" for event in events) == 4
+    assert all(event[3:] == (45, "scancode") for event in clicks)
     assert not any(event[0] == "ctrl-down" for event in events[1:-1])
 
 
@@ -235,7 +232,7 @@ def test_held_ctrl_is_released_when_a_pass_raises(monkeypatch):
     monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
 
     with pytest.raises(RuntimeError, match="boom"):
-        with winput.hold_ctrl():
+        with winput.hold_ctrl(mode="both"):
             raise RuntimeError("boom")
 
     assert sent == [False, False, True, True]
@@ -261,6 +258,27 @@ def test_ctrl_must_be_confirmed_before_a_click_can_be_sent(monkeypatch):
         winput.ensure_ctrl_down(settle_ms=55, mode="both")
 
     assert sends == [(False, "both")] * 3
+
+
+def test_checked_ctrl_and_mouse_down_are_sent_in_the_same_batch(monkeypatch):
+    batches = []
+    checks = []
+    monkeypatch.setattr(
+        winput,
+        "ensure_ctrl_down",
+        lambda *, settle_ms, mode: checks.append((settle_ms, mode)),
+    )
+    monkeypatch.setattr(winput, "_send", lambda *inputs: batches.append(inputs))
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    winput.left_click_with_ctrl_held(hold_ms=70, settle_ms=55, mode="both")
+
+    assert checks == [(55, "both")]
+    assert len(batches[0]) == 3
+    assert batches[0][0].type == winput.INPUT_KEYBOARD
+    assert batches[0][1].type == winput.INPUT_KEYBOARD
+    assert batches[0][2].mi.dwFlags == winput.MOUSEEVENTF_LEFTDOWN
+    assert batches[1][0].mi.dwFlags == winput.MOUSEEVENTF_LEFTUP
 
 
 def test_stops_when_the_game_stops_being_the_focused_window(cfg, click, fake_mouse, monkeypatch):

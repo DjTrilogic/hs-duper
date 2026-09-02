@@ -263,6 +263,25 @@ def test_receiver_rescans_even_when_the_last_item_was_on_the_cursor(cfg):
     assert cycles[0].withdrew == 1
 
 
+def test_receiver_abort_returns_a_cursor_item_and_closes_the_stash(cfg):
+    side = Receiver(GO)
+    closes = iter([False, True])
+
+    def aborting_withdraw():
+        side.calls.append("withdraw")
+        control.request_abort()
+        raise control.Aborted("abort requested")
+
+    side.withdraw = aborting_withdraw
+    side.close_stash = lambda: side.calls.append("close") or next(closes)
+
+    with pytest.raises(control.Aborted, match="abort requested"):
+        side.run(cfg)
+
+    assert side.calls[-3:] == ["withdraw", "close", "close"]
+    assert "open_inventory" not in side.calls
+
+
 def test_receiver_opens_inventory_before_using_items(cfg):
     side = Receiver(GO, inventory_opens=False)
     with pytest.raises(Stopped, match="inventory would not open"):

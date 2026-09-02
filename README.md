@@ -200,12 +200,15 @@ at your own instance instead.
   instead of being toggled for every slot. It is released in a `finally`, so an
   abort mid-pass cannot leave it stuck.
 - Before every transfer click, CTRL is reasserted through both the virtual-key
-  and hardware-scancode paths and its actual Windows state is checked. If it is
-  not confirmed as held, hs-duper refuses to send what would become a plain
-  item-pick-up click.
+  and hardware-scancode paths when that mode is selected, and its actual
+  Windows state is checked. The checked CTRL-down and LMB-down are then placed
+  in the same `SendInput` batch. If CTRL is not confirmed, hs-duper refuses to
+  send what would become a plain item-pick-up click.
 - If a missed modifier leaves an item on the cursor, the first Escape returns
   it to the stash. hs-duper detects that the panel stayed open, rescans, retries
   the withdrawal, and only then tries to close it again.
+- F12 during a withdrawal performs the same safe Escape cleanup before exiting,
+  so an aborted pass does not leave an item attached to the cursor.
 - A blank capture is treated as a failure, never as an empty grid.
 
 ---
@@ -248,7 +251,7 @@ at your own instance instead.
 | `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |
-| `ctrl_mode` | how CTRL is delivered: `both`, `vk`, `scancode` |
+| `ctrl_mode` | how CTRL is delivered: `scancode` (default), `both`, or `vk` |
 
 ---
 
