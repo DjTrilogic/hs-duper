@@ -357,6 +357,40 @@ def test_withdraw_recovers_cursor_before_clicking_another_stash_item(
     assert report.result is Result.DONE
 
 
+def test_withdraw_only_verifies_the_first_item_when_inventory_is_empty(
+    cfg, fake_mouse, monkeypatch
+):
+    cfg.data["timing"]["transfer_verify_ms"] = 0
+    source = MutableGrid("stash", full())
+    destination = MutableGrid("inventory", empty())
+    destination_reads = 0
+    original_occupied = destination.occupied
+
+    def destination_occupied():
+        nonlocal destination_reads
+        destination_reads += 1
+        return original_occupied()
+
+    @contextmanager
+    def held_ctrl(**_kwargs):
+        yield
+
+    def successful_click(*_args, **_kwargs):
+        row = round((fake_mouse["pos"][1] - source.y0) / source.pitch_y)
+        col = round((fake_mouse["pos"][0] - source.x0) / source.pitch_x)
+        source.mask[row, col] = False
+        destination.mask[row, col] = True
+
+    monkeypatch.setattr(destination, "occupied", destination_occupied)
+    monkeypatch.setattr(winput, "hold_ctrl", held_ctrl)
+    monkeypatch.setattr(winput, "left_click_with_ctrl_held", successful_click)
+
+    report = transfer(source, cfg, destination=destination, log=lambda *_: None)
+
+    assert report.result is Result.DONE
+    assert destination_reads == 2, "one pre-click and one post-click inventory scan"
+
+
 def test_both_ctrl_mode_really_sends_vk_and_scancode():
     inputs = winput._ctrl_inputs(up=False, mode="both")
 

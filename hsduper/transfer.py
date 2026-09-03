@@ -208,6 +208,14 @@ def transfer(
                 current_destination = (
                     destination.occupied() if destination is not None else None
                 )
+                # The dangerous, directly observable case is the first stash
+                # item leaving while an empty inventory remains empty. Check
+                # that transition once; rescanning both grids after every item
+                # makes a full withdrawal needlessly slow.
+                verify_empty_destination = (
+                    current_destination is not None
+                    and not bool(current_destination.any())
+                )
                 for row, col in source.cells(before):
                     # A multi-cell item may have disappeared when an earlier one
                     # of its cells was clicked. The verification scan gives us a
@@ -222,12 +230,12 @@ def transfer(
                     commanded = (x, y)
                     time.sleep(click_delay + random.uniform(0, jitter))
 
-                    if destination is None:
+                    if not verify_empty_destination:
                         continue
 
-                    # Verify every withdrawal before touching the next stash
-                    # item. If the source cell vanished but no new inventory cell
-                    # appeared, a plain click picked the item up onto the cursor.
+                    # Verify the first withdrawal into an empty inventory before
+                    # touching the next stash item. Once an inventory item is
+                    # visible, the rest of the pass keeps its normal fast cadence.
                     control.check(commanded)
                     park(cfg)
                     commanded = tuple(cfg.park)
@@ -241,6 +249,7 @@ def transfer(
                     current_source = next_source
                     current_destination = next_destination
                     observed_after = next_source
+                    verify_empty_destination = False
                     if source_lost and not destination_gained:
                         cursor_pickup = True
                         return

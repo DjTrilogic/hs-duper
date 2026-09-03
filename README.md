@@ -260,12 +260,14 @@ at your own instance instead.
   Windows state is checked. The checked CTRL-down and LMB-down are then placed
   in the same `SendInput` batch. If CTRL is not confirmed, hs-duper refuses to
   send what would become a plain item-pick-up click.
-- Every stash click is checked before the next one. If its item disappears from
-  the stash without a new occupied inventory cell, hs-duper immediately stops
-  the pass, releases CTRL, places the cursor item into a screen-confirmed empty
-  inventory cell, and retries with a fresh CTRL state and the next delivery
-  mode (`both`, then `vk`, then `scancode`). If the inventory is full, an empty
-  stash cell is used as a safe fallback.
+- When a withdrawal starts with an empty inventory, its first stash click is
+  checked before the next one. If that item disappears from the stash while the
+  inventory remains empty, hs-duper immediately stops the pass, releases CTRL,
+  places the cursor item into a screen-confirmed empty inventory cell, and
+  retries with a fresh CTRL state and the next delivery mode (`both`, then `vk`,
+  then `scancode`). Once the first item is visible in inventory, the remaining
+  items keep the normal fast transfer cadence. If the inventory is full, an
+  empty stash cell is used as a safe fallback.
 - F12 during a withdrawal performs the same cursor-placement cleanup before
   closing the stash and exiting.
 - A blank capture is treated as a failure, never as an empty grid.
@@ -302,7 +304,7 @@ at your own instance instead.
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.ctrl_settle_ms` | pause while checking CTRL-up and CTRL-down before a transfer (default: 70 ms) |
-| `timing.transfer_verify_ms` | extra wait before checking that a withdrawn item appeared in inventory (default: 120 ms) |
+| `timing.transfer_verify_ms` | extra wait when checking the first withdrawal into an empty inventory (default: 120 ms) |
 | `timing.max_passes` | give-up limit per transfer |
 | `timing.use_click_delay_ms` | delay between item-opening clicks (default: 90 ms) |
 | `timing.use_retry_delay_ms` | settling delay before retrying items still visible (default: 500 ms) |
