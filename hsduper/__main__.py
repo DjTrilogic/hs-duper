@@ -322,7 +322,10 @@ def _move(cfg: Config, source_name: str, label: str) -> int:
     grid = cfg.grid(source_name)
     print(f"{label}: draining {source_name}")
     try:
-        report = transfer(grid, cfg)
+        kwargs = {}
+        if source_name == "stash" and cfg.has_grid("inventory"):
+            kwargs["destination"] = cfg.grid("inventory")
+        report = transfer(grid, cfg, **kwargs)
     except PanelClosed as exc:
         print(f"  stopped: {exc}")
         return 1
@@ -634,8 +637,11 @@ def cmd_pact(args: list[str]) -> int:
         keep_open = (lambda: True) if dry else (lambda: panels.ensure_stash_open(cfg))
 
         def move(grid):
-            return nothing_happened(f"drain {grid.name}") if dry else (
-                lambda: transfer(grid, cfg))
+            if dry:
+                return nothing_happened(f"drain {grid.name}")
+            if grid.name == "stash":
+                return lambda: transfer(grid, cfg, destination=inventory)
+            return lambda: transfer(grid, cfg)
 
         if role == "sender":
             roles.run_sender(

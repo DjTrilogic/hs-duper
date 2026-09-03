@@ -48,6 +48,8 @@ def _moved(report: Report, what: str) -> int:
     had not made, and the receiver would be sent looking for items nobody put
     there.
     """
+    if report.result is Result.CURSOR_PICKUP:
+        raise Stopped(f"{what} stopped after an item was found on the cursor - {report}")
     if report.moved == 0:
         raise Stopped(f"{what} moved nothing at all - {report}")
     return report.moved

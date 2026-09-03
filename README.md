@@ -252,18 +252,20 @@ at your own instance instead.
 - **F12** is checked before every click and while waiting on the network signal.
 - **Moving the mouse yourself stops the run.** The tool drives the same cursor
   you do.
-- CTRL is held once for the whole transfer pass, like the physical gesture,
-  instead of being toggled for every slot. It is released in a `finally`, so an
-  abort mid-pass cannot leave it stuck.
+- Before a transfer pass, hs-duper forces CTRL up, verifies the release, then
+  presses CTRL and verifies the down state. CTRL stays held for the pass and is
+  released in a `finally`, so an abort cannot leave it stuck.
 - Before every transfer click, CTRL is reasserted through both the virtual-key
   and hardware-scancode paths when that mode is selected, and its actual
   Windows state is checked. The checked CTRL-down and LMB-down are then placed
   in the same `SendInput` batch. If CTRL is not confirmed, hs-duper refuses to
   send what would become a plain item-pick-up click.
-- If a missed modifier leaves an item on the cursor, hs-duper places it into a
-  screen-confirmed empty inventory cell and retries the remaining stash with
-  the next CTRL mode (`scancode`, then `vk`, then `both`). If the inventory is
-  full, an empty stash cell is used as a safe fallback.
+- Every stash click is checked before the next one. If its item disappears from
+  the stash without a new occupied inventory cell, hs-duper immediately stops
+  the pass, releases CTRL, places the cursor item into a screen-confirmed empty
+  inventory cell, and retries with a fresh CTRL state and the next delivery
+  mode (`both`, then `vk`, then `scancode`). If the inventory is full, an empty
+  stash cell is used as a safe fallback.
 - F12 during a withdrawal performs the same cursor-placement cleanup before
   closing the stash and exiting.
 - A blank capture is treated as a failure, never as an empty grid.
@@ -299,12 +301,15 @@ at your own instance instead.
 | `seen_token` | the receiver's confirmation text |
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
+| `timing.ctrl_settle_ms` | pause while checking CTRL-up and CTRL-down before a transfer (default: 70 ms) |
+| `timing.transfer_verify_ms` | extra wait before checking that a withdrawn item appeared in inventory (default: 120 ms) |
 | `timing.max_passes` | give-up limit per transfer |
 | `timing.use_click_delay_ms` | delay between item-opening clicks (default: 90 ms) |
 | `timing.use_retry_delay_ms` | settling delay before retrying items still visible (default: 500 ms) |
 | `use_attempts` | maximum item-opening passes, including the first (default: 5) |
 | `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
 | `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
+| `timing.panel_settle_ms` | pause after the stash anchor appears before retrieval starts (default: 750 ms) |
 | `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |
 | `withdraw_recovery_attempts` | maximum withdraw/close recovery attempts after a possible cursor pick-up (default: 3) |
 | `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |

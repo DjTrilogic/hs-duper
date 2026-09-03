@@ -37,6 +37,15 @@ class ScriptedGrid(Grid):
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
 
 
+class MutableGrid(Grid):
+    def __init__(self, name, mask):
+        super().__init__(name, 100.0, 200.0, 50.0, 40.0, 2, 2, 50.0)
+        self.mask = mask.copy()
+
+    def occupied(self):
+        return self.mask.copy()
+
+
 @pytest.fixture
 def cfg():
     """Anchors are stubbed as present. Whether an anchor is satisfied is
@@ -153,11 +162,11 @@ def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
 
     transfer(grid, cfg, log=lambda *_: None)
 
-    assert events[0] == ("ctrl-down", 45, "both")
-    assert events[-1] == ("ctrl-up", 45, "both")
+    assert events[0] == ("ctrl-down", 70, "both")
+    assert events[-1] == ("ctrl-up", 70, "both")
     clicks = [event for event in events if event[0] == "left"]
     assert len(clicks) == 4
-    assert all(event[3:] == (45, "both") for event in clicks)
+    assert all(event[3:] == (70, "both") for event in clicks)
     assert not any(event[0] == "ctrl-down" for event in events[1:-1])
 
 
@@ -258,14 +267,94 @@ def test_held_ctrl_is_released_when_a_pass_raises(monkeypatch):
             sent.append(bool(item.ki.dwFlags & winput.KEYEVENTF_KEYUP))
 
     monkeypatch.setattr(winput, "_send", fake_send)
-    monkeypatch.setattr(winput, "ctrl_is_down", lambda: True)
+    states = iter([False, True])
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: next(states))
     monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
 
     with pytest.raises(RuntimeError, match="boom"):
         with winput.hold_ctrl(mode="both"):
             raise RuntimeError("boom")
 
-    assert sent == [False, False, True, True]
+    assert sent == [True, True, False, False, True, True]
+
+
+def test_held_ctrl_forces_and_checks_a_fresh_up_down_edge(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        winput,
+        "ensure_ctrl_up",
+        lambda **kwargs: events.append(("checked-up", kwargs)),
+    )
+    monkeypatch.setattr(
+        winput,
+        "ensure_ctrl_down",
+        lambda **kwargs: events.append(("checked-down", kwargs)),
+    )
+    monkeypatch.setattr(
+        winput, "_send_ctrl", lambda up, mode: events.append(("release", up, mode))
+    )
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    with winput.hold_ctrl(settle_ms=80, mode="both"):
+        events.append(("body",))
+
+    assert events[:2] == [
+        ("checked-up", {"settle_ms": 80, "mode": "both", "attempts": 3}),
+        ("checked-down", {"settle_ms": 80, "mode": "both", "attempts": 3}),
+    ]
+    assert events[2:] == [("body",), ("release", True, "both")]
+
+
+def test_withdraw_recovers_cursor_before_clicking_another_stash_item(
+    cfg, fake_mouse, monkeypatch
+):
+    cfg.data["timing"]["transfer_verify_ms"] = 0
+    source = MutableGrid("stash", full())
+    destination = MutableGrid("inventory", empty())
+    events = []
+    click_count = 0
+
+    @contextmanager
+    def held_ctrl(*, settle_ms, mode):
+        events.append(("ctrl-down", mode))
+        try:
+            yield
+        finally:
+            events.append(("ctrl-up", mode))
+
+    def missed_ctrl_click(*_args, **_kwargs):
+        nonlocal click_count
+        click_count += 1
+        row = round((fake_mouse["pos"][1] - source.y0) / source.pitch_y)
+        col = round((fake_mouse["pos"][0] - source.x0) / source.pitch_x)
+        events.append(("click", row, col))
+        source.mask[row, col] = False
+        if click_count > 1:
+            destination.mask[row, col] = True
+
+    def recover():
+        events.append(("recover",))
+        destination.mask[0, 0] = True
+        return True
+
+    monkeypatch.setattr(winput, "hold_ctrl", held_ctrl)
+    monkeypatch.setattr(winput, "left_click_with_ctrl_held", missed_ctrl_click)
+
+    report = transfer(
+        source,
+        cfg,
+        destination=destination,
+        recover_cursor=recover,
+        log=lambda *_: None,
+    )
+
+    first_recovery = events.index(("recover",))
+    assert [event for event in events[:first_recovery] if event[0] == "click"] == [
+        ("click", 0, 0)
+    ]
+    assert events[first_recovery - 1] == ("ctrl-up", "both")
+    assert ("ctrl-down", "vk") in events[first_recovery + 1:]
+    assert report.result is Result.DONE
 
 
 def test_both_ctrl_mode_really_sends_vk_and_scancode():

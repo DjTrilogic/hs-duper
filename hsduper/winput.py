@@ -173,8 +173,23 @@ def ctrl_is_down() -> bool:
     return bool(user32.GetAsyncKeyState(VK_LCONTROL) & 0x8000)
 
 
+def ensure_ctrl_up(
+    settle_ms: int = 70, mode: str = "both", attempts: int = 3
+) -> None:
+    """Force a clean CTRL-up state and verify that Windows observed it."""
+    attempts = max(int(attempts), 1)
+    for _ in range(attempts):
+        _send_ctrl(up=True, mode=mode)
+        time.sleep(settle_ms / 1000)
+        if not ctrl_is_down():
+            return
+    raise RuntimeError(
+        f"CTRL stayed down after {attempts} release attempt(s); refusing to click"
+    )
+
+
 def ensure_ctrl_down(
-    settle_ms: int = 45, mode: str = "both", attempts: int = 3
+    settle_ms: int = 70, mode: str = "both", attempts: int = 3
 ) -> None:
     """Reassert CTRL and refuse to click unless Windows confirms its state."""
     attempts = max(int(attempts), 1)
@@ -186,6 +201,14 @@ def ensure_ctrl_down(
     raise RuntimeError(
         f"CTRL did not register after {attempts} attempt(s); refusing to send a plain click"
     )
+
+
+def reset_ctrl_down(
+    settle_ms: int = 70, mode: str = "both", attempts: int = 3
+) -> None:
+    """Establish a checked up -> down edge before a transfer pass."""
+    ensure_ctrl_up(settle_ms=settle_ms, mode=mode, attempts=attempts)
+    ensure_ctrl_down(settle_ms=settle_ms, mode=mode, attempts=attempts)
 
 
 def _click_with_ctrl_held(
@@ -206,7 +229,7 @@ def _click_with_ctrl_held(
 
 
 def left_click_with_ctrl_held(
-    hold_ms: int = 70, settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE
+    hold_ms: int = 70, settle_ms: int = 70, mode: str = DEFAULT_CTRL_MODE
 ) -> None:
     _click_with_ctrl_held(
         MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, hold_ms, settle_ms, mode
@@ -214,7 +237,7 @@ def left_click_with_ctrl_held(
 
 
 def right_click_with_ctrl_held(
-    hold_ms: int = 70, settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE
+    hold_ms: int = 70, settle_ms: int = 70, mode: str = DEFAULT_CTRL_MODE
 ) -> None:
     _click_with_ctrl_held(
         MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, hold_ms, settle_ms, mode
@@ -284,7 +307,7 @@ def ctrl_left_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both") 
 
 
 @contextmanager
-def hold_ctrl(settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE):
+def hold_ctrl(settle_ms: int = 70, mode: str = DEFAULT_CTRL_MODE):
     """Keep CTRL down for a whole group of mouse clicks.
 
     Bulk transfers are more reliable when they look like the physical gesture:
@@ -296,7 +319,10 @@ def hold_ctrl(settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE):
     exception cannot leave CTRL held on the desktop.
     """
     try:
-        ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
+        # A fresh edge is important here. Repeating CTRL-down while Windows or
+        # the game still thinks the key is held does not necessarily create a
+        # transition for a raw-input consumer.
+        reset_ctrl_down(settle_ms=settle_ms, mode=mode)
         yield
         time.sleep(settle_ms / 1000)
     finally:

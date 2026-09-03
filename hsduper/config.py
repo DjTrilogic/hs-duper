@@ -27,7 +27,7 @@ DEFAULT_TIMING = {
     "button_hold_ms": 70,
     # Around the CTRL press, so the game sees the modifier held before the
     # button goes down and still held when it comes up.
-    "ctrl_settle_ms": 45,
+    "ctrl_settle_ms": 70,
     "move_settle_ms": 15,
     "click_delay_ms": 60,
     "jitter_ms": 15,
@@ -47,7 +47,10 @@ DEFAULT_TIMING = {
     # this starts at nothing and is the dial for the overlap.
     "after_ready_ms": 0,
     # After clicking a panel open or shut, before believing the anchor.
-    "panel_settle_ms": 450,
+    "panel_settle_ms": 750,
+    # After a transfer click, leave enough time for the destination grid to
+    # render before deciding that the item is still attached to the cursor.
+    "transfer_verify_ms": 120,
     # Opening can animate for longer than the generic settle delay. Poll the
     # anchor throughout this window so a late-opened stash is detected before
     # another interaction clicks it shut again.

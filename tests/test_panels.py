@@ -15,6 +15,7 @@ class PanelConfig:
             "move_settle_ms": 0,
             "panel_open_timeout_ms": timeout_ms,
             "panel_poll_ms": 10,
+            "panel_settle_ms": 750,
             "use_click_delay_ms": 90,
             "use_retry_delay_ms": 500,
         }
@@ -52,6 +53,7 @@ def test_open_stash_polls_until_a_late_anchor_appears(monkeypatch):
     assert panels.open_stash(cfg, log=lambda *_: None)
     assert presses == ["f"]
     assert len(sleeps) >= 2
+    assert sleeps[-1] == 0.75
 
 
 def test_open_stash_retries_after_a_full_detection_timeout(monkeypatch):

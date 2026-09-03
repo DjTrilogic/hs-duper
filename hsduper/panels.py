@@ -51,6 +51,9 @@ def open_stash(cfg: Config, log=print) -> bool:
         winput.press_interact()
         if _wait_for_anchor(cfg, "stash", timeout_ms):
             log(f"  stash open (attempt {attempt})")
+            # The title anchor appears near the start of the opening animation.
+            # Do not begin a withdrawal while the grid is still settling.
+            time.sleep(max(cfg.timing("panel_settle_ms"), 0) / 1000)
             return True
         if attempt < attempts:
             log(f"  stash not detected after attempt {attempt}/{attempts} - retrying")
