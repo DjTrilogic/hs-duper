@@ -8,6 +8,7 @@ hardware scancode for CTRL.
 
 import ctypes
 import time
+from contextlib import contextmanager
 from ctypes import wintypes
 
 if ctypes.sizeof(ctypes.c_void_p) == 8:
@@ -36,14 +37,19 @@ SC_LCONTROL = 0x1D
 VK_LCONTROL = 0xA2
 VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
+VK_F = 0x46
+VK_I = 0x49
 SC_RETURN = 0x1C
 SC_ESCAPE = 0x01
+SC_F = 0x21
+SC_I = 0x17
 
 #: How CTRL is put on the wire. Real hardware delivers both a virtual-key code
 #: and a scancode in the same event; "both" reproduces that, and is the default
 #: because a game reading either one will see it. The other two exist so a game
 #: that only believes one of them can be found by trying.
 CTRL_MODES = ("both", "scancode", "vk")
+DEFAULT_CTRL_MODE = "both"
 
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
@@ -91,6 +97,8 @@ class INPUT(ctypes.Structure):
 
 user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
 user32.SendInput.restype = wintypes.UINT
+user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+user32.GetAsyncKeyState.restype = ctypes.c_short
 
 
 def set_dpi_aware() -> None:
@@ -143,6 +151,76 @@ def _ctrl(up: bool, mode: str = "both") -> INPUT:
     return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(VK_LCONTROL, SC_LCONTROL, up_flag, 0, 0))
 
 
+def _ctrl_inputs(up: bool, mode: str = "both") -> tuple[INPUT, ...]:
+    """Build CTRL events for the requested delivery path.
+
+    Without ``KEYEVENTF_SCANCODE``, Windows uses ``wVk`` and ignores ``wScan``.
+    The old ``both`` event populated both fields but therefore behaved like
+    VK-only input. Two events make the default honest: virtual-key and raw
+    scancode consumers both receive the transition.
+    """
+    if mode == "both":
+        return (_ctrl(up, "vk"), _ctrl(up, "scancode"))
+    return (_ctrl(up, mode),)
+
+
+def _send_ctrl(up: bool, mode: str = "both") -> None:
+    _send(*_ctrl_inputs(up, mode))
+
+
+def ctrl_is_down() -> bool:
+    """Whether Windows currently reports left CTRL as held."""
+    return bool(user32.GetAsyncKeyState(VK_LCONTROL) & 0x8000)
+
+
+def ensure_ctrl_down(
+    settle_ms: int = 45, mode: str = "both", attempts: int = 3
+) -> None:
+    """Reassert CTRL and refuse to click unless Windows confirms its state."""
+    attempts = max(int(attempts), 1)
+    for _ in range(attempts):
+        _send_ctrl(up=False, mode=mode)
+        time.sleep(settle_ms / 1000)
+        if ctrl_is_down():
+            return
+    raise RuntimeError(
+        f"CTRL did not register after {attempts} attempt(s); refusing to send a plain click"
+    )
+
+
+def _click_with_ctrl_held(
+    down: int, up: int, hold_ms: int, settle_ms: int, mode: str
+) -> None:
+    """Reassert CTRL and press a mouse button in one SendInput batch.
+
+    Windows confirming the key state does not guarantee that a game consuming
+    raw input has already associated the separate keyboard event with a later
+    mouse event. Repeating CTRL-down and LMB-down in the same input array keeps
+    their ordering adjacent for both the Windows and raw-input paths. CTRL is
+    intentionally not released here; the surrounding pass owns its lifetime.
+    """
+    ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
+    _send(*_ctrl_inputs(up=False, mode=mode), _mouse(down))
+    time.sleep(hold_ms / 1000)
+    _send(_mouse(up))
+
+
+def left_click_with_ctrl_held(
+    hold_ms: int = 70, settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE
+) -> None:
+    _click_with_ctrl_held(
+        MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, hold_ms, settle_ms, mode
+    )
+
+
+def right_click_with_ctrl_held(
+    hold_ms: int = 70, settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE
+) -> None:
+    _click_with_ctrl_held(
+        MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, hold_ms, settle_ms, mode
+    )
+
+
 def _unicode_key(char: str, up: bool = False) -> INPUT:
     flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if up else 0)
     return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, ord(char), flags, 0, 0))
@@ -188,14 +266,13 @@ def _modified_click(
     otherwise leave CTRL held down for the whole desktop.
     """
     try:
-        _send(_ctrl(up=False, mode=mode))
-        time.sleep(settle_ms / 1000)
+        ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
         _send(_mouse(down))
         time.sleep(hold_ms / 1000)
         _send(_mouse(up))
         time.sleep(settle_ms / 1000)
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)
 
 
 def ctrl_right_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both") -> None:
@@ -204,6 +281,26 @@ def ctrl_right_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both")
 
 def ctrl_left_click(hold_ms: int = 70, settle_ms: int = 45, mode: str = "both") -> None:
     _modified_click(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, hold_ms, settle_ms, mode)
+
+
+@contextmanager
+def hold_ctrl(settle_ms: int = 45, mode: str = DEFAULT_CTRL_MODE):
+    """Keep CTRL down for a whole group of mouse clicks.
+
+    Bulk transfers are more reliable when they look like the physical gesture:
+    press CTRL once, click every item, then release it. Toggling the modifier
+    around every individual click gives the game one opportunity per slot to
+    miss CTRL-down and interpret that click as a plain pick-up instead.
+
+    The release remains unconditional so F12, a focus failure or any other
+    exception cannot leave CTRL held on the desktop.
+    """
+    try:
+        ensure_ctrl_down(settle_ms=settle_ms, mode=mode)
+        yield
+        time.sleep(settle_ms / 1000)
+    finally:
+        _send_ctrl(up=True, mode=mode)
 
 
 def _plain_click(down: int, up: int, hold_ms: int = 70) -> None:
@@ -240,6 +337,16 @@ def press_enter() -> None:
 
 def press_escape() -> None:
     tap(SC_ESCAPE, VK_ESCAPE)
+
+
+def press_interact() -> None:
+    """Interact with the object in front of the character using F."""
+    tap(SC_F, VK_F)
+
+
+def press_inventory() -> None:
+    """Toggle the inventory with the game's default I binding."""
+    tap(SC_I, VK_I)
 
 
 def type_text(text: str, per_char_ms: int = 12) -> None:
@@ -293,12 +400,12 @@ def batched_ctrl_right_click(x: int, y: int, mode: str = "both") -> None:
     try:
         _send(
             _abs_move_input(x, y),
-            _ctrl(up=False, mode=mode),
+            *_ctrl_inputs(up=False, mode=mode),
             _mouse(MOUSEEVENTF_RIGHTDOWN),
             _mouse(MOUSEEVENTF_RIGHTUP),
         )
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)
 
 
 def ctrl_right_click_at(
@@ -315,18 +422,18 @@ def ctrl_right_click_at(
     """
     try:
         if ctrl_first:
-            _send(_ctrl(up=False, mode=mode))
+            _send_ctrl(up=False, mode=mode)
             time.sleep(settle_ms / 1000)
             _send(_abs_move_input(x, y))
             time.sleep(settle_ms / 1000)
         else:
             _send(_abs_move_input(x, y))
             time.sleep(settle_ms / 1000)
-            _send(_ctrl(up=False, mode=mode))
+            _send_ctrl(up=False, mode=mode)
             time.sleep(settle_ms / 1000)
         _send(_mouse(MOUSEEVENTF_RIGHTDOWN))
         time.sleep(hold_ms / 1000)
         _send(_mouse(MOUSEEVENTF_RIGHTUP))
         time.sleep(settle_ms / 1000)
     finally:
-        _send(_ctrl(up=True, mode=mode))
+        _send_ctrl(up=True, mode=mode)

@@ -6,6 +6,7 @@ typed at the console are asked for up front, while you are still looking at the
 console, so that every step needing the game in front of you is a keypress.
 """
 
+import base64
 import math
 import threading
 import time
@@ -125,12 +126,20 @@ def calibrate_grid(name: str) -> Grid:
 def calibrate_anchor(cfg: Config, name: str, what: str) -> None:
     point = mark(f"The {what} title text.")
     rect = (point[0] - ANCHOR_W // 2, point[1] - ANCHOR_H // 2, ANCHOR_W, ANCHOR_H)
-    colour = capture.grab(rect).reshape(-1, 3).mean(axis=0)
+    # Hero Siege draws its own cursor into the captured frame. Keeping it over
+    # the title would bake the cursor shape into the anchor template, which is
+    # absent during later checks and makes an open panel look closed.
+    winput.move_to(*SAMPLE_PARK_POINT)
+    time.sleep(SAMPLE_SETTLE_SECONDS)
+    frame = capture.grab(rect)
+    colour = frame.reshape(-1, 3).mean(axis=0)
+    luminance = np.rint(capture.luminance(frame)).astype(np.uint8)
     cfg.data.setdefault("anchors", {})[name] = {
         "rect": list(rect),
         "color": [round(float(v), 2) for v in colour],
+        "luminance_template": base64.b64encode(luminance.tobytes()).decode("ascii"),
     }
-    print(f"     anchor colour {[round(float(v)) for v in colour]}")
+    print(f"     anchor colour {[round(float(v)) for v in colour]} and text template stored")
 
 
 def run(parts: list[str]) -> None:
@@ -161,19 +170,22 @@ def run(parts: list[str]) -> None:
     if "pact" in wanted:
         print()
         print("=== pact ===")
-        print("  Both roles need this: the chat cannot be reached while the stash is")
-        print("  open, so every cycle shuts it and clicks it open again.")
-        print("  ESC closes it, so only reopening needs a position.")
-        print("  Stand where you farm, with the stash CLOSED.")
-        cfg.data["stash_object_point"] = list(mark("The STASH OBJECT in the world."))
-        cfg.save()
+        print("  No position is needed: stand in front of the stash and hs-duper uses F.")
 
     if "anchors" in wanted:
         print("\n=== panel anchors ===")
-        print("  These are what stops a pass running with a panel closed, which would drop")
-        print("  your items on the floor instead of moving them. Both panels open, please.")
-        calibrate_anchor(cfg, "inventory", "INVENTORY")
+        print("  These stop a pass from running against the wrong panel state.")
+        print("  First leave both the INVENTORY and BLOOD PACT STASH open.")
+        calibrate_anchor(
+            cfg, "inventory_stash_open", "INVENTORY shown with the stash open"
+        )
         calibrate_anchor(cfg, "stash", "BLOOD PACT STASH")
+        print()
+        print("  Now press ESC to close the stash, then I to open the inventory by itself.")
+        print("  This is a different inventory window and needs its own anchor.")
+        calibrate_anchor(
+            cfg, "inventory_standalone", "INVENTORY shown by itself"
+        )
         cfg.save()
 
     print(f"\nWritten to {PATH}. Check it with `python -m hsduper scan`.")

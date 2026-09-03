@@ -1,12 +1,15 @@
 """The move loop, with the game replaced by a script of what the grid shows."""
 
+from contextlib import contextmanager
+
 import numpy as np
 import pytest
 
+import hsduper.transfer as transfer_module
 from hsduper import control, doctor, winput
 from hsduper.config import Config
 from hsduper.grid import Grid
-from hsduper.transfer import NotFocused, PanelClosed, Result, transfer
+from hsduper.transfer import NotFocused, PanelClosed, Result, return_cursor_item, transfer
 
 
 def full(n=2):
@@ -88,6 +91,86 @@ def test_clicks_land_on_the_cell_centres(cfg, click, fake_mouse):
     assert fake_mouse["clicks"] == [(100, 200)]
 
 
+def test_cursor_recovery_prefers_an_empty_inventory_cell(cfg, fake_mouse, monkeypatch):
+    source = ScriptedGrid([full()])
+    destination = ScriptedGrid([empty(), one()])
+    clicks = []
+    monkeypatch.setattr(
+        winput,
+        "left_click",
+        lambda hold_ms: clicks.append((fake_mouse["pos"], hold_ms)),
+    )
+
+    assert return_cursor_item(source, destination, cfg, log=lambda *_: None)
+    assert clicks == [((100, 200), 70)]
+
+
+def test_cursor_recovery_falls_back_to_an_empty_stash_cell(
+    cfg, fake_mouse, monkeypatch
+):
+    source = ScriptedGrid([empty(), one()])
+    destination = ScriptedGrid([full()])
+    clicks = []
+    monkeypatch.setattr(
+        winput,
+        "left_click",
+        lambda hold_ms: clicks.append((fake_mouse["pos"], hold_ms)),
+    )
+
+    assert return_cursor_item(source, destination, cfg, log=lambda *_: None)
+    assert clicks == [((100, 200), 70)]
+
+
+def test_default_transfer_holds_ctrl_once_for_the_whole_pass(
+    cfg, fake_mouse, monkeypatch
+):
+    events = []
+
+    @contextmanager
+    def held_ctrl(*, settle_ms, mode):
+        events.append(("ctrl-down", settle_ms, mode))
+        try:
+            yield
+        finally:
+            events.append(("ctrl-up", settle_ms, mode))
+
+    monkeypatch.setattr(winput, "hold_ctrl", held_ctrl)
+    monkeypatch.setattr(
+        winput,
+        "left_click_with_ctrl_held",
+        lambda hold_ms, settle_ms, mode: events.append(
+            ("left", fake_mouse["pos"], hold_ms, settle_ms, mode)
+        ),
+    )
+    monkeypatch.setattr(
+        winput,
+        "ctrl_left_click",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("CTRL must not be toggled around each slot")
+        ),
+    )
+    grid = ScriptedGrid([full(), empty(), empty()])
+
+    transfer(grid, cfg, log=lambda *_: None)
+
+    assert events[0] == ("ctrl-down", 45, "both")
+    assert events[-1] == ("ctrl-up", 45, "both")
+    clicks = [event for event in events if event[0] == "left"]
+    assert len(clicks) == 4
+    assert all(event[3:] == (45, "both") for event in clicks)
+    assert not any(event[0] == "ctrl-down" for event in events[1:-1])
+
+
+def test_a_custom_delay_can_be_used_between_clicks(cfg, click, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(transfer_module.time, "sleep", sleeps.append)
+    grid = ScriptedGrid([one(), empty(), empty()])
+
+    transfer(grid, cfg, click=click, click_delay_ms=250, log=lambda *_: None)
+
+    assert sleeps.count(0.25) == 1
+
+
 def test_a_pass_that_moves_nothing_stops_instead_of_clicking_on(cfg, click, fake_mouse):
     """A full destination looks exactly like this, and is the reason the loop is
     progress-based rather than counted."""
@@ -110,18 +193,17 @@ def test_leftovers_are_picked_up_by_a_later_pass(cfg, click, fake_mouse):
 def test_gives_up_after_max_passes(cfg, click):
     cfg.data["timing"]["max_passes"] = 3
     # never empties, but always moves one, so it never counts as stalled either
-    grid = ScriptedGrid([full(3), full(2), full(2), one(2), one(2), empty(2), full(2)])
+    grid = ScriptedGrid([full(4), full(3), full(3), full(2), full(2), one(2), full(2)])
     report = transfer(grid, cfg, click=click, log=lambda *_: None)
     assert report.result is Result.MAX_PASSES
     assert report.passes == 3
 
 
 def test_refuses_to_click_when_a_panel_is_closed(cfg, click, fake_mouse):
-    """CTRL+RMB with no stash open is Drop, so this must stop before the first
-    click rather than warn and continue."""
+    """A pass must stop before the first click when its required panel is shut."""
     cfg.missing_anchors = lambda names: ["stash"]
     grid = ScriptedGrid([full(), empty()])
-    with pytest.raises(PanelClosed, match="drops items on the ground"):
+    with pytest.raises(PanelClosed, match="required panel state cannot be verified"):
         transfer(grid, cfg, click=click, log=lambda *_: None)
     assert fake_mouse["clicks"] == []
 
@@ -162,9 +244,71 @@ def test_ctrl_is_released_even_when_the_click_raises(monkeypatch):
                     raise RuntimeError("boom")
 
     monkeypatch.setattr(winput, "_send", fake_send)
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: True)
     with pytest.raises(RuntimeError):
         winput.ctrl_right_click()
     assert ("key", winput.SC_LCONTROL, True) in sent, "CTRL was left down"
+
+
+def test_held_ctrl_is_released_when_a_pass_raises(monkeypatch):
+    sent = []
+
+    def fake_send(*inputs):
+        for item in inputs:
+            sent.append(bool(item.ki.dwFlags & winput.KEYEVENTF_KEYUP))
+
+    monkeypatch.setattr(winput, "_send", fake_send)
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: True)
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with winput.hold_ctrl(mode="both"):
+            raise RuntimeError("boom")
+
+    assert sent == [False, False, True, True]
+
+
+def test_both_ctrl_mode_really_sends_vk_and_scancode():
+    inputs = winput._ctrl_inputs(up=False, mode="both")
+
+    assert len(inputs) == 2
+    assert inputs[0].ki.wVk == winput.VK_LCONTROL
+    assert not (inputs[0].ki.dwFlags & winput.KEYEVENTF_SCANCODE)
+    assert inputs[1].ki.wScan == winput.SC_LCONTROL
+    assert inputs[1].ki.dwFlags & winput.KEYEVENTF_SCANCODE
+
+
+def test_ctrl_must_be_confirmed_before_a_click_can_be_sent(monkeypatch):
+    sends = []
+    monkeypatch.setattr(winput, "_send_ctrl", lambda up, mode: sends.append((up, mode)))
+    monkeypatch.setattr(winput, "ctrl_is_down", lambda: False)
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="refusing to send a plain click"):
+        winput.ensure_ctrl_down(settle_ms=55, mode="both")
+
+    assert sends == [(False, "both")] * 3
+
+
+def test_checked_ctrl_and_mouse_down_are_sent_in_the_same_batch(monkeypatch):
+    batches = []
+    checks = []
+    monkeypatch.setattr(
+        winput,
+        "ensure_ctrl_down",
+        lambda *, settle_ms, mode: checks.append((settle_ms, mode)),
+    )
+    monkeypatch.setattr(winput, "_send", lambda *inputs: batches.append(inputs))
+    monkeypatch.setattr(winput.time, "sleep", lambda *_: None)
+
+    winput.left_click_with_ctrl_held(hold_ms=70, settle_ms=55, mode="both")
+
+    assert checks == [(55, "both")]
+    assert len(batches[0]) == 3
+    assert batches[0][0].type == winput.INPUT_KEYBOARD
+    assert batches[0][1].type == winput.INPUT_KEYBOARD
+    assert batches[0][2].mi.dwFlags == winput.MOUSEEVENTF_LEFTDOWN
+    assert batches[1][0].mi.dwFlags == winput.MOUSEEVENTF_LEFTUP
 
 
 def test_stops_when_the_game_stops_being_the_focused_window(cfg, click, fake_mouse, monkeypatch):

@@ -20,7 +20,7 @@ One cycle, with both machines running hs-duper:
 | 3 | waiting for confirmation | opens the stash, then watches it until the items are visible |
 | 4 | | publishes the confirmation |
 | 5 | withdraws the stash back | withdraws the same items |
-| 6 | | closes the stash and uses the items — and leaves it shut |
+| 6 | | closes the stash, opens the inventory with `I`, then uses and verifies every item |
 
 ### The receiver can be slow, and that is fine
 
@@ -37,11 +37,12 @@ tens of seconds for a full inventory. The default is 3 minutes. **Every cycle
 logs what it actually waited** (`confirmed after 12.4s`), so tune from real
 numbers rather than guessing.
 
-The receiver's cycle ends with the stash **closed**. It reopens only when the
-next go signal arrives, at step 3. That is deliberate: a panel left open across
-cycles can be showing the previous cycle's contents, so watching it would be
-watching a stale view and confirming against items that are not the ones just
-deposited. Opened fresh, what it shows is what is actually there.
+The receiver's cycle ends with the stash **closed** and the inventory open. It
+reopens only when the next go signal arrives, at step 3. That is deliberate: a
+panel left open across cycles can be showing the previous cycle's contents, so
+watching it would be watching a stale view and confirming against items that
+are not the ones just deposited. Opened fresh, what it shows is what is
+actually there.
 
 Steps 3 and 4 are a handshake, and they matter. Without them the sender
 announces and withdraws immediately, on the assumption that the receiver got
@@ -74,12 +75,33 @@ signal goes over a pub/sub topic both machines share.
 .\.venv\Scripts\python.exe -m hsduper pact sender 5
 ```
 
-`5` is the number of cycles. **F12 aborts.** Start with `1`.
+`5` is the number of cycles. **F12 aborts**, including while waiting for the
+other machine's signal. Start with `1`.
 
 | flag | |
 | --- | --- |
 | `--dry-run` | narrate every step, click nothing, publish nothing |
 | `--no-use` | receiver: skip using the items, so nothing is consumed |
+
+### Opening statistics
+
+Every real receiver run that opens items is recorded in `stats.json`. The file
+contains each session and a cumulative `totals` block. A cycle records the
+withdrawn count, confirmed-opened count, opening passes, and anything still
+visible when the receiver stopped. Dry runs and `--no-use` runs are not counted.
+
+Show the latest session and all-time totals without opening the game:
+
+```powershell
+.\.venv\Scripts\python.exe -m hsduper stats
+```
+
+For a visual dashboard, open `stats.html` in a browser and select or drag
+`stats.json` onto the page. If the repository is served over HTTP, the page
+loads `stats.json` automatically. The dashboard has no external dependency and
+does not upload the file anywhere.
+
+`stats.json` is local machine state and is ignored by Git.
 
 ### Testing alone
 
@@ -123,29 +145,20 @@ You confirm the row and column counts at the console, then hover things in game
 and press **F8**. The defaults are 6x15 for the inventory and 18x17 for the
 stash; press Enter to accept them or type a different value. ESC cancels.
 
-When the brightness of an empty or occupied slot is sampled, calibration moves
-the cursor briefly to the top-left of the screen. This clears the game's bright
-hover highlight before the pixels are captured, so it is expected.
+After marking a slot or panel title, calibration moves the cursor briefly to
+the top-left of the screen before capturing. This clears slot highlights and
+keeps Hero Siege's drawn cursor out of title templates, so it is expected.
 
 | what | why |
 | --- | --- |
 | `inventory` | the bag grid. It does **not** move when the stash opens — what appears above it is the equipment panel |
 | `stash` | the Blood Pact stash grid |
 | park point | somewhere the cursor can rest without raising a tooltip over a slot. Every capture is taken with it parked there |
-| anchors | the INVENTORY and BLOOD PACT STASH titles. These are what prove a panel is open before any click — see Safety |
-| stash object | `calibrate pact` — where to click in the world to open the stash |
+| anchors | the INVENTORY title with the stash open, the BLOOD PACT STASH title, then the standalone INVENTORY title after `ESC` and `I`. These prove the correct panel layout is open before any click — see Safety |
+| stash interaction | no positional calibration: stand in front of it and hs-duper presses `F` |
 
-The **receiver** needs the stash object: it opens the stash each time the go
-signal arrives, having shut it to use the previous batch.
-
-The **sender** starts with the stash already open, so it normally never clicks
-the object - but calibrate it anyway. It is the difference between recovering
-from a stash that closed unexpectedly and stopping dead. Stand where you can
-click it:
-
-```powershell
-.\.venv\Scripts\python.exe -m hsduper calibrate pact
-```
+The character must remain standing in front of the stash. Whenever it needs to
+reopen the panel, hs-duper presses `F` and waits for the stash anchor.
 
 Redo one part at a time by naming it: `calibrate stash`, `calibrate park anchors`.
 
@@ -236,10 +249,23 @@ at your own instance instead.
   as missing — "I was never told what to look for" must not mean "go ahead".
 - **The run stops if Hero Siege loses focus**, rather than clicking into
   whatever window came forward.
-- **F12** is checked before every click.
+- **F12** is checked before every click and while waiting on the network signal.
 - **Moving the mouse yourself stops the run.** The tool drives the same cursor
   you do.
-- CTRL is released in a `finally`, so an abort mid-click cannot leave it stuck.
+- CTRL is held once for the whole transfer pass, like the physical gesture,
+  instead of being toggled for every slot. It is released in a `finally`, so an
+  abort mid-pass cannot leave it stuck.
+- Before every transfer click, CTRL is reasserted through both the virtual-key
+  and hardware-scancode paths when that mode is selected, and its actual
+  Windows state is checked. The checked CTRL-down and LMB-down are then placed
+  in the same `SendInput` batch. If CTRL is not confirmed, hs-duper refuses to
+  send what would become a plain item-pick-up click.
+- If a missed modifier leaves an item on the cursor, hs-duper places it into a
+  screen-confirmed empty inventory cell and retries the remaining stash with
+  the next CTRL mode (`scancode`, then `vk`, then `both`). If the inventory is
+  full, an empty stash cell is used as a safe fallback.
+- F12 during a withdrawal performs the same cursor-placement cleanup before
+  closing the stash and exiting.
 - A blank capture is treated as a failure, never as an empty grid.
 
 ---
@@ -248,12 +274,13 @@ at your own instance instead.
 
 | | |
 | --- | --- |
-| `calibrate [part ...]` | measure things (`inventory`, `stash`, `park`, `anchors`, `chat`, `pact`) |
+| `calibrate [part ...]` | measure things (`inventory`, `stash`, `park`, `anchors`, `chat`) |
 | `scan [grid ...]` | print what it sees, click nothing |
 | `probe [grid]` | measure a grid's cell pitch off the screen |
 | `deposit` / `withdraw` | one bulk transfer |
 | `pact sender\|receiver [n]` | run the cycle |
 | `link [topic]` / `ping` / `watch` / `await` | the signal topic: set it, test it, observe it |
+| `stats` | show the latest receiver session and cumulative item-opening totals |
 | `relay [port]` | host the signal on this machine instead of a public service |
 | `click [what]` / `hover` / `doctor` | input diagnostics |
 | `listen` / `say` | read and write Blood Pact chat (diagnostics only) |
@@ -273,10 +300,18 @@ at your own instance instead.
 | `timing.click_delay_ms` | after each click. If pass 2 regularly does real work, the server is dropping transfers — raise it |
 | `timing.button_hold_ms` | how long the button stays down; must clear a frame |
 | `timing.max_passes` | give-up limit per transfer |
+| `timing.use_click_delay_ms` | delay between item-opening clicks (default: 90 ms) |
+| `timing.use_retry_delay_ms` | settling delay before retrying items still visible (default: 500 ms) |
+| `use_attempts` | maximum item-opening passes, including the first (default: 5) |
+| `timing.panel_open_timeout_ms` | how long each panel-open attempt polls for its anchor |
+| `timing.panel_poll_ms` | interval between anchor checks while opening a panel |
+| `panel_open_attempts` | maximum stash/inventory-open attempts (default: 3) |
+| `withdraw_recovery_attempts` | maximum withdraw/close recovery attempts after a possible cursor pick-up (default: 3) |
+| `anchor_correlation` | title-template match threshold for panel detection (default: 0.65) |
 | `ready_token` | the go signal's text |
 | `notify.topic` / `notify.base` | the shared topic and relay |
 | `notify.token` or `notify.user`/`password` | credentials, for a relay that wants them |
-| `ctrl_mode` | how CTRL is delivered: `both`, `vk`, `scancode` |
+| `ctrl_mode` | how CTRL is delivered: `both` (default), `vk`, or `scancode` |
 
 ---
 
@@ -293,8 +328,9 @@ at your own instance instead.
 | **"the stash was empty when the sender withdrew"** | the receiver won the race and took everything. Nothing is lost; the cycle produced nothing |
 | **"the inventory is empty"** | nothing to deposit. If the last withdraw did bring items back, the panel had not caught up — raise `inventory_wait_ms` |
 | **"moved nothing at all"** | a transfer found its source empty. It stops rather than treating an empty source as a completed step |
-| **"the stash would not open"** | the character has drifted away from it, or `calibrate pact` was never run |
+| **"the stash would not open"** | each `F` press is checked repeatedly and retried; run `calibrate anchors` after upgrading so title detection uses the brightness-independent template |
 | **"the stash would not close"** | using an item needs it shut — with it open the same gesture moves the item instead |
+| **"the inventory would not open"** | the standalone inventory differs from the one shown beside the stash; run `calibrate anchors` and mark both versions when prompted |
 | **`ping` never comes back** | the two machines have different topics, or the relay is unreachable |
 | **rate limited on ntfy.sh** | 250 messages/day for anonymous use, and a cycle costs two. Host the relay yourself — see above |
 
@@ -310,6 +346,12 @@ shows up as a pass that moved nothing). Occupancy is the 95th percentile of
 luminance over the middle of each cell: an empty slot is near-uniform dark, and
 any item icon puts bright pixels in it whatever its colour.
 
+**Item opening** uses the same scan-before/scan-after evidence, but retries even
+when a pass made no progress. Its counter increases only by the number of slots
+that actually became empty, never by the number of RMB events sent. If anything
+is still visible after all attempts, the receiver leaves the inventory open and
+stops before starting another stash cycle.
+
 **The signal** is one token on a shared pub/sub topic. The receiver holds a
 single streamed connection open rather than polling — polling once a second
 would be thousands of requests across a wait, and the public relay rate-limits
@@ -321,8 +363,8 @@ anonymous callers. A dropped connection reconnects from the last message seen.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-120 tests: grid geometry and occupancy against synthetic frames, the transfer
-loop against a scripted grid, the anchor rules, both role sequences, the chat
+The test suite covers grid geometry and occupancy against synthetic frames, the
+transfer loop against a scripted grid, the anchor rules, both role sequences, the chat
 reader, the notifier's reconnect and duplicate handling, the command table, and
 the built-in relay driven by the real client over a real socket.
 
@@ -330,5 +372,5 @@ the built-in relay driven by the real client over a real socket.
 
 Phase 1 (bulk transfer) and Phase 2 (the coordinated cycle) both work. The
 sender path is the one exercised in anger; the receiver's panel steps — closing
-the stash and clicking the stash object to reopen it — are tested but have seen
-less real use.
+the stash, reopening it with `F`, and opening the standalone inventory with `I`
+— are covered by automated tests but have seen less real use.

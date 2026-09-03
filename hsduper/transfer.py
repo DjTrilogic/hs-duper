@@ -44,18 +44,21 @@ class NotFocused(RuntimeError):
 
 
 def make_click(cfg: Config, button: str | None = None):
-    """The click as configured.
+    """The mouse half of the configured transfer gesture.
 
     CTRL+LMB is what moves an item. CTRL+RMB is Drop, per the game's own legend,
     which is why aiming the right button at a slot with the stash open does
-    nothing at all - the game receives it and has nothing to do with it.
+    nothing at all - the game receives it and has nothing to do with it. The
+    modifier itself is held once around the complete pass by :func:`transfer`.
     """
     button = button or cfg.data.get("click_button", "left")
-    fn = winput.ctrl_right_click if button == "right" else winput.ctrl_left_click
     hold = int(cfg.timing("button_hold_ms"))
     settle = int(cfg.timing("ctrl_settle_ms"))
-    mode = cfg.data.get("ctrl_mode", "both")
-    return lambda: fn(hold_ms=hold, settle_ms=settle, mode=mode)
+    mode = cfg.data.get("ctrl_mode", winput.DEFAULT_CTRL_MODE)
+    if button == "right":
+        # Retained for the old diagnostic override. Normal transfers use LMB.
+        return lambda: winput.right_click_with_ctrl_held(hold, settle, mode)
+    return lambda: winput.left_click_with_ctrl_held(hold, settle, mode)
 
 
 def park(cfg: Config) -> None:
@@ -69,12 +72,47 @@ def park(cfg: Config) -> None:
     time.sleep(cfg.timing("tooltip_ms") / 1000)
 
 
+def return_cursor_item(source: Grid, destination: Grid, cfg: Config, log=print) -> bool:
+    """Place a possibly carried item into a known empty inventory slot.
+
+    Escape is not a reliable way to clear Hero Siege's item cursor. A plain
+    click on a slot that the screen has just confirmed empty is deterministic:
+    it places a carried item, and is harmless when the cursor is already empty.
+    The destination inventory is preferred because that completes the missed
+    withdrawal. An empty source slot is used only when the inventory is full.
+    This helper deliberately does not call ``control.check`` so abort cleanup
+    can still put an item somewhere safe after F12 has been requested.
+    """
+    for grid, label in ((destination, "inventory"), (source, "stash")):
+        park(cfg)
+        cells = grid.cells(~grid.occupied())
+        if not cells:
+            continue
+
+        row, col = cells[0]
+        x, y = grid.cell_center(row, col)
+        winput.move_to(x, y)
+        time.sleep(cfg.timing("move_settle_ms") / 1000)
+        winput.left_click(hold_ms=int(cfg.timing("button_hold_ms")))
+        park(cfg)
+        time.sleep(cfg.timing("pass_settle_ms") / 1000)
+
+        if bool(grid.occupied()[row, col]):
+            log(f"  cursor recovery: item placed safely in {label} cell ({row}, {col})")
+            return True
+
+    log("  cursor recovery: cursor was already empty (or placement was not detected)")
+    return False
+
+
 def transfer(
     source: Grid,
     cfg: Config,
-    anchors: tuple[str, ...] = ("inventory", "stash"),
+    anchors: tuple[str, ...] = ("inventory_stash_open", "stash"),
     forbidden: tuple[str, ...] = (),
     click=None,
+    click_delay_ms: float | None = None,
+    max_passes: int | None = None,
     log=print,
 ) -> Report:
     """Drain `source` a pass at a time until nothing moves.
@@ -88,11 +126,16 @@ def transfer(
     an item covers moves the whole item, and its other cells simply read empty
     on the next pass.
     """
-    if click is None:
+    hold_modifier = click is None
+    if hold_modifier:
         click = make_click(cfg)
-    max_passes = int(cfg.timing("max_passes"))
+    if max_passes is None:
+        max_passes = int(cfg.timing("max_passes"))
+    max_passes = max(int(max_passes), 1)
     move_settle = cfg.timing("move_settle_ms") / 1000
-    click_delay = cfg.timing("click_delay_ms") / 1000
+    if click_delay_ms is None:
+        click_delay_ms = cfg.timing("click_delay_ms")
+    click_delay = max(click_delay_ms, 0) / 1000
     jitter = cfg.timing("jitter_ms") / 1000
     pass_settle = cfg.timing("pass_settle_ms") / 1000
 
@@ -110,8 +153,8 @@ def transfer(
             )
 
         # Some passes require a panel to be shut, not open. Using an item is
-        # the case: CTRL+RMB consumes it with the stash closed, and with the
-        # stash open the same gesture means something else. "The panel I need
+        # the case: plain RMB consumes/opens it with the stash closed, and with
+        # the stash open that gesture has another meaning. "The panel I need
         # gone is still there" has to stop the run just as firmly as a missing
         # one.
         present = [name for name in forbidden if cfg.anchor_ok(name)]
@@ -124,8 +167,8 @@ def transfer(
         missing = cfg.missing_anchors(list(anchors))
         if missing:
             raise PanelClosed(
-                f"{', '.join(missing)} is not open. Refusing to click: CTRL+RMB with no stash "
-                "open drops items on the ground instead of moving them."
+                f"{', '.join(missing)} is not open. Refusing to click because the required "
+                "panel state cannot be verified."
             )
 
         before = source.occupied()
@@ -146,14 +189,26 @@ def transfer(
         # right after `move_to` only ever compares the cursor against the
         # position just given to it, and so can never fire.
         commanded: tuple[int, int] | None = None
-        for row, col in source.cells(before):
-            control.check(commanded)
-            x, y = source.cell_center(row, col)
-            winput.move_to(x, y)
-            time.sleep(move_settle)
-            click()
-            commanded = (x, y)
-            time.sleep(click_delay + random.uniform(0, jitter))
+
+        def click_cells() -> None:
+            nonlocal commanded
+            for row, col in source.cells(before):
+                control.check(commanded)
+                x, y = source.cell_center(row, col)
+                winput.move_to(x, y)
+                time.sleep(move_settle)
+                click()
+                commanded = (x, y)
+                time.sleep(click_delay + random.uniform(0, jitter))
+
+        if hold_modifier:
+            settle = int(cfg.timing("ctrl_settle_ms"))
+            mode = cfg.data.get("ctrl_mode", winput.DEFAULT_CTRL_MODE)
+            with winput.hold_ctrl(settle_ms=settle, mode=mode):
+                click_cells()
+        else:
+            # Custom clicks are used for item opening, where CTRL must stay up.
+            click_cells()
         control.check(commanded)
 
         park(cfg)
@@ -163,6 +218,8 @@ def transfer(
         gone = max(count - remaining, 0)
         moved += gone
         log(f"    {gone} left {source.name} this pass, {remaining} still there")
+        if remaining == 0:
+            return Report(Result.DONE, moved, attempt, 0)
         if remaining >= count:
             return Report(Result.STALLED, moved, attempt, remaining)
 

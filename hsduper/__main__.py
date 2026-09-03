@@ -1,5 +1,6 @@
 """hs-duper - bulk item transfer between the inventory and the Blood Pact stash."""
 
+import json
 import sys
 import threading
 import time
@@ -15,11 +16,11 @@ from pynput import keyboard  # noqa: E402
 
 import numpy as np  # noqa: E402
 from . import (calibrate, capture, chat, control, doctor, notify, panels, relay,  # noqa: E402
-               roles, signal)  # noqa: E402
+               roles, signal, stats)  # noqa: E402
 from .config import GRID_NAMES, Config  # noqa: E402
 from .grid import BlankCapture  # noqa: E402
-from .transfer import (NotFocused, PanelClosed, Report, Result, park, transfer,  # noqa: E402
-                       wait_until_occupied)  # noqa: E402
+from .transfer import (NotFocused, PanelClosed, Report, Result, park,  # noqa: E402
+                       return_cursor_item, transfer, wait_until_occupied)  # noqa: E402
 
 USAGE = """hs-duper
 
@@ -37,6 +38,7 @@ USAGE = """hs-duper
   python -m hsduper ping [text]            publish a go signal
   python -m hsduper await [seconds]        wait for one
   python -m hsduper watch [seconds]        print everything on the topic
+  python -m hsduper stats                  show receiver opening statistics
   python -m hsduper relay [port]           host the signal yourself
   python -m hsduper pact sender|receiver [n] [--dry-run] [--no-use]
   python -m hsduper run                    arm the hotkeys and wait
@@ -151,7 +153,7 @@ def cmd_click(args: list[str]) -> int:
 
     hold = int(cfg.timing("button_hold_ms"))
     settle = int(cfg.timing("ctrl_settle_ms"))
-    mode = cfg.data.get("ctrl_mode", "both")
+    mode = cfg.data.get("ctrl_mode", winput.DEFAULT_CTRL_MODE)
 
     variants = {
         "left": ("plain LEFT (pick up)", lambda x, y: winput.left_click(hold_ms=hold)),
@@ -592,6 +594,23 @@ def cmd_pact(args: list[str]) -> int:
     control.clear()
     print(f"  {role}, {cycles} cycle(s). F12 aborts.")
 
+    stats_session = None
+    if role == "receiver" and not no_use:
+        try:
+            stats_session = stats.OpeningSession.start(cycles)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"  cannot start opening statistics: {exc}")
+            return 1
+
+    def finish_stats(status: str, reason: str | None = None) -> None:
+        if stats_session is None:
+            return
+        try:
+            stats_session.finish(status, reason)
+            print(f"  stats: {stats_session.summary_line()}")
+        except OSError as exc:
+            print(f"  warning: could not finish opening statistics: {exc}")
+
     listener = keyboard.Listener(
         on_press=lambda k: control.request_abort() if k == keyboard.Key.f12 else None)
     listener.start()
@@ -600,6 +619,11 @@ def cmd_pact(args: list[str]) -> int:
         token = cfg.data.get("ready_token", "hsd-ready")
         seen = cfg.data.get("seen_token", "hsd-seen")
         confirm_wait = cfg.timing("confirm_timeout_ms") / 1000
+
+        def wait_for_signal(match, timeout):
+            value = link.wait_for(match, timeout=timeout, cancelled=control.aborted)
+            control.check()
+            return value
 
         def nothing_happened(what):
             def act(*_):
@@ -624,13 +648,13 @@ def cmd_pact(args: list[str]) -> int:
                 announce=(lambda t: print(f"    [dry run] would publish {t!r}"))
                 if dry else link.announce,
                 wait_seen=(lambda: True) if dry else
-                (lambda: link.wait_for(lambda t: seen in t, timeout=confirm_wait) is not None),
+                (lambda: wait_for_signal(lambda t: seen in t, confirm_wait) is not None),
                 withdraw=move(stash),
             )
         else:
             roles.run_receiver(
                 cfg, cycles,
-                wait_ready=lambda: link.wait_for(lambda t: token in t, timeout=600.0),
+                wait_ready=lambda: wait_for_signal(lambda t: token in t, 600.0),
                 ensure_stash=keep_open,
                 see_items=(lambda: True) if dry else
                 (lambda: wait_until_occupied(stash, cfg, timeout=confirm_wait) > 0),
@@ -638,19 +662,35 @@ def cmd_pact(args: list[str]) -> int:
                 if dry else link.announce,
                 withdraw=move(stash),
                 close_stash=(lambda: True) if dry else lambda: panels.close_stash(cfg),
+                recover_cursor=None if dry else
+                lambda: return_cursor_item(stash, inventory, cfg),
+                open_inventory=(lambda: True) if dry else lambda: panels.open_inventory(cfg),
                 use_all=nothing_happened("use every item in the inventory")
                 if no_use else lambda: panels.use_all(cfg, inventory),
+                record_opening=None if stats_session is None else stats_session.record_cycle,
             )
+        finish_stats("completed")
     except (roles.Stopped, PanelClosed, NotFocused, BlankCapture) as exc:
+        finish_stats("stopped", str(exc))
         print(f"  stopped: {exc}")
         return 1
     except control.Aborted as exc:
+        finish_stats("aborted", str(exc))
         print(f"  aborted: {exc}")
         return 1
     finally:
         control.request_abort()
         listener.stop()
     print("  done.")
+    return 0
+
+
+def cmd_stats() -> int:
+    try:
+        stats.print_report()
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: cannot read opening statistics: {exc}")
+        return 1
     return 0
 
 
@@ -687,6 +727,8 @@ def main(argv: list[str]) -> int:
             return cmd_await(rest)
         if command == "watch":
             return cmd_watch(rest)
+        if command == "stats":
+            return cmd_stats()
         if command == "relay":
             return cmd_relay(rest)
         if command == "pact":

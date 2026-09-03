@@ -1,6 +1,8 @@
 """The out-of-band go signal, with HTTP replaced by recorded calls."""
 
 import json
+import threading
+import time
 
 import pytest
 
@@ -163,6 +165,45 @@ def test_a_repeat_after_reconnect_is_not_acted_on_twice():
     n = streaming(stream)
     assert n.wait_for(lambda t: t == "hsd-ready", timeout=5) == "hsd-ready"
     assert n.wait_for(lambda t: t == "hsd-ready", timeout=0.3, reconnect_s=0.01) is None
+
+
+class BlockingConnection:
+    def __init__(self):
+        self.reading = threading.Event()
+        self.released = threading.Event()
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.reading.set()
+        self.released.wait(5)
+        raise StopIteration
+
+    def close(self):
+        self.closed = True
+        self.released.set()
+
+
+def test_wait_for_can_be_cancelled_while_the_network_read_is_blocked():
+    connection = BlockingConnection()
+    cancelled = threading.Event()
+    n = streaming(type(
+        "Stream", (),
+        {"open": lambda self, url, timeout, headers=None: connection},
+    )())
+    threading.Timer(0.05, cancelled.set).start()
+    started = time.monotonic()
+
+    assert n.wait_for(
+        lambda _: False, timeout=5, cancelled=cancelled.is_set, cancel_poll_s=0.01
+    ) is None
+
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.5
+    assert connection.released.wait(0.5)
+    assert connection.closed
 
 
 def test_a_signal_sent_while_not_listening_is_delivered_on_return():

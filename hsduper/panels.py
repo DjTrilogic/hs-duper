@@ -2,9 +2,25 @@
 
 import time
 
-from . import capture, winput
+from . import winput
 from .config import Config
-from .transfer import transfer
+from .transfer import Report, Result, transfer
+
+DEFAULT_OPEN_ATTEMPTS = 3
+DEFAULT_USE_ATTEMPTS = 5
+
+
+def _wait_for_anchor(cfg: Config, name: str, timeout_ms: float) -> bool:
+    """Poll an anchor until it appears or its timeout expires."""
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+    poll_s = max(cfg.timing("panel_poll_ms"), 10) / 1000
+    while True:
+        if cfg.anchor_ok(name):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(poll_s, remaining))
 
 
 def close_stash(cfg: Config, log=print) -> bool:
@@ -23,44 +39,86 @@ def close_stash(cfg: Config, log=print) -> bool:
 
 
 def open_stash(cfg: Config, log=print) -> bool:
-    """Click the stash object in the world, and confirm the panel came back.
+    """Press F in front of the stash, and confirm the panel came back.
 
     This is the one step that depends on where the character is standing rather
-    than on the interface, so it is the one that quietly stops working. The
-    return value is checked by the caller for exactly that reason.
+    than on the interface. The return value is checked by the caller so a
+    character that moved away from the stash cannot start an unsafe pass.
     """
-    point = cfg.data.get("stash_object_point")
-    if not point:
-        raise KeyError("stash_object_point is not calibrated - run `calibrate pact`")
-    for attempt in (1, 2):
-        winput.move_to(*point)
-        time.sleep(cfg.timing("move_settle_ms") / 1000)
-        winput.left_click()
-        time.sleep(cfg.timing("panel_settle_ms") / 1000)
-        if cfg.anchor_ok("stash"):
+    attempts = max(int(cfg.data.get("panel_open_attempts", DEFAULT_OPEN_ATTEMPTS)), 1)
+    timeout_ms = cfg.timing("panel_open_timeout_ms")
+    for attempt in range(1, attempts + 1):
+        winput.press_interact()
+        if _wait_for_anchor(cfg, "stash", timeout_ms):
             log(f"  stash open (attempt {attempt})")
             return True
-    log("  stash did not open")
+        if attempt < attempts:
+            log(f"  stash not detected after attempt {attempt}/{attempts} - retrying")
+    log(f"  stash did not open after {attempts} attempt(s)")
+    return False
+
+
+def open_inventory(cfg: Config, log=print) -> bool:
+    """Open the inventory with I and confirm its anchor appeared."""
+    if cfg.anchor_ok("inventory_standalone"):
+        log("  inventory already open")
+        return True
+
+    attempts = max(int(cfg.data.get("panel_open_attempts", DEFAULT_OPEN_ATTEMPTS)), 1)
+    timeout_ms = cfg.timing("panel_open_timeout_ms")
+    for attempt in range(1, attempts + 1):
+        winput.press_inventory()
+        if _wait_for_anchor(cfg, "inventory_standalone", timeout_ms):
+            log(f"  inventory open (attempt {attempt})")
+            return True
+        if attempt < attempts:
+            log(f"  inventory not detected after attempt {attempt}/{attempts} - retrying")
+    log(f"  inventory did not open after {attempts} attempt(s)")
     return False
 
 
 def use_all(cfg: Config, grid, log=print):
-    """CTRL+RMB every item in the inventory, with the stash shut.
+    """RMB every item in the inventory, with the stash shut.
 
     The forbidden anchor is the safety here: with the stash open this gesture
     is not 'use', so the pass must refuse to run until the panel is really gone.
     """
-    return transfer(
-        grid, cfg,
-        anchors=("inventory",),
-        forbidden=("stash",),
-        click=lambda: winput.ctrl_right_click(
-            int(cfg.timing("button_hold_ms")),
-            int(cfg.timing("ctrl_settle_ms")),
-            cfg.data.get("ctrl_mode", "both"),
-        ),
-        log=log,
-    )
+    hold_ms = int(cfg.timing("button_hold_ms"))
+    attempts = max(int(cfg.data.get("use_attempts", DEFAULT_USE_ATTEMPTS)), 1)
+    retry_delay = max(cfg.timing("use_retry_delay_ms"), 0) / 1000
+    initial = None
+    confirmed = 0
+    passes = 0
+    remaining = 0
+
+    for attempt in range(1, attempts + 1):
+        log(f"  item-opening attempt {attempt}/{attempts}")
+        report = transfer(
+            grid, cfg,
+            anchors=("inventory_standalone",),
+            forbidden=("stash",),
+            click=lambda: winput.right_click(hold_ms),
+            click_delay_ms=cfg.timing("use_click_delay_ms"),
+            max_passes=1,
+            log=log,
+        )
+        passes += report.passes
+        remaining = report.left
+        if initial is None:
+            initial = report.moved + remaining
+        previous = confirmed
+        confirmed = max(initial - remaining, 0)
+        log(
+            f"  confirmed opened: +{max(confirmed - previous, 0)}, total {confirmed}; "
+            f"{remaining} item(s) remaining"
+        )
+        if report.result is Result.DONE and remaining == 0:
+            return Report(Result.DONE, confirmed, passes, 0)
+        if attempt < attempts and retry_delay:
+            log(f"  waiting {retry_delay:g}s before retrying remaining items")
+            time.sleep(retry_delay)
+
+    return Report(Result.MAX_PASSES, confirmed, passes, remaining)
 
 
 def ensure_stash_open(cfg: Config, log=print) -> bool:

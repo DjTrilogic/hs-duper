@@ -9,8 +9,8 @@ from hsduper.signal import ChatEvent
 from hsduper.transfer import Report, Result
 
 
-def report(moved, result=Result.DONE):
-    return Report(result, moved, 1, 0)
+def report(moved, result=Result.DONE, left=0):
+    return Report(result, moved, 1, left)
 
 
 @pytest.fixture
@@ -117,9 +117,13 @@ def test_sender_honours_the_abort_before_announcing(cfg):
 
 
 class Receiver:
-    def __init__(self, event, sees=True, stash_opens=True, closes=True):
+    def __init__(self, event, sees=True, stash_opens=True, closes=True,
+                 inventory_opens=True, use_report=None):
         self.event, self.sees = event, sees
         self.stash_opens, self.closes = stash_opens, closes
+        self.inventory_opens = inventory_opens
+        self.use_report = use_report or report(60)
+        self.opening_records = []
         self.calls = []
 
     def ensure_stash(self):
@@ -145,16 +149,30 @@ class Receiver:
         self.calls.append("close")
         return self.closes
 
+    def open_inventory(self):
+        self.calls.append("open_inventory")
+        return self.inventory_opens
+
+    def recover_cursor(self):
+        self.calls.append("recover_cursor")
+        return True
+
     def use_all(self):
         self.calls.append("use")
-        return report(60)
+        return self.use_report
+
+    def record_opening(self, number, withdrawn, opening_report):
+        self.opening_records.append((number, withdrawn, opening_report))
 
     def run(self, cfg, cycles=1):
         return run_receiver(cfg, cycles, wait_ready=self.wait_ready,
                             ensure_stash=self.ensure_stash,
                             see_items=self.see_items, confirm=self.confirm,
                             withdraw=self.withdraw, close_stash=self.close_stash,
-                            use_all=self.use_all, log=lambda *_: None)
+                            open_inventory=self.open_inventory,
+                            use_all=self.use_all, recover_cursor=self.recover_cursor,
+                            record_opening=self.record_opening,
+                            log=lambda *_: None)
 
 
 GO = ChatEvent("Partner", 7216, "hsd-ready", "999", 1)
@@ -164,7 +182,7 @@ def test_receiver_sees_the_items_before_it_confirms(cfg):
     side = Receiver(GO)
     side.run(cfg)
     assert side.calls == ["wait", "ensure_stash", "see", "confirm:hsd-seen",
-                          "withdraw", "close", "use"]
+                          "withdraw", "close", "open_inventory", "use"]
 
 
 def test_receiver_does_not_confirm_items_it_cannot_see(cfg):
@@ -201,6 +219,128 @@ def test_receiver_stops_if_the_stash_will_not_close(cfg):
     with pytest.raises(Stopped, match="would not close"):
         side.run(cfg)
     assert "use" not in side.calls
+
+
+def test_receiver_retries_withdraw_when_escape_returns_a_carried_item(cfg):
+    side = Receiver(GO)
+    reports = iter([
+        report(1, Result.STALLED, left=17),
+        report(18),
+    ])
+    closes = iter([False, True])
+    logs = []
+
+    def withdraw():
+        side.calls.append("withdraw")
+        return next(reports)
+
+    def close_stash():
+        side.calls.append("close")
+        return next(closes)
+
+    side.withdraw = withdraw
+    side.close_stash = close_stash
+    cycles = run_receiver(
+        cfg, 1,
+        wait_ready=side.wait_ready,
+        ensure_stash=side.ensure_stash,
+        see_items=side.see_items,
+        confirm=side.confirm,
+        withdraw=side.withdraw,
+        close_stash=side.close_stash,
+        recover_cursor=side.recover_cursor,
+        open_inventory=side.open_inventory,
+        use_all=side.use_all,
+        log=logs.append,
+    )
+
+    assert side.calls == [
+        "wait", "ensure_stash", "see", "confirm:hsd-seen",
+        "withdraw", "close", "recover_cursor", "withdraw", "close",
+        "open_inventory", "use",
+    ]
+    assert cycles[0].withdrew == 18
+    assert any("empty inventory cell" in line for line in logs)
+    assert [line for line in logs if "withdraw CTRL mode" in line] == [
+        "  withdraw CTRL mode: both",
+        "  withdraw CTRL mode: vk",
+    ]
+
+
+def test_receiver_rescans_even_when_the_last_item_was_on_the_cursor(cfg):
+    side = Receiver(GO)
+    closes = iter([False, True])
+    reports = iter([report(1), report(1)])
+    side.withdraw = lambda: side.calls.append("withdraw") or next(reports)
+    side.close_stash = lambda: side.calls.append("close") or next(closes)
+
+    cycles = side.run(cfg)
+
+    assert side.calls.count("withdraw") == 2
+    assert side.calls.count("close") == 2
+    assert cycles[0].withdrew == 1
+
+
+def test_receiver_abort_returns_a_cursor_item_and_closes_the_stash(cfg):
+    side = Receiver(GO)
+    closes = iter([False, True])
+
+    def aborting_withdraw():
+        side.calls.append("withdraw")
+        control.request_abort()
+        raise control.Aborted("abort requested")
+
+    side.withdraw = aborting_withdraw
+    side.close_stash = lambda: side.calls.append("close") or next(closes)
+
+    with pytest.raises(control.Aborted, match="abort requested"):
+        side.run(cfg)
+
+    assert side.calls[-4:] == ["withdraw", "recover_cursor", "close", "close"]
+    assert "open_inventory" not in side.calls
+
+
+def test_receiver_abort_during_a_retry_also_cleans_the_cursor(cfg):
+    side = Receiver(GO)
+    withdrawals = 0
+    closes = iter([False, True])
+
+    def withdraw():
+        nonlocal withdrawals
+        side.calls.append("withdraw")
+        withdrawals += 1
+        if withdrawals == 1:
+            return report(1, Result.STALLED, left=17)
+        control.request_abort()
+        raise control.Aborted("abort requested")
+
+    side.withdraw = withdraw
+    side.close_stash = lambda: side.calls.append("close") or next(closes)
+
+    with pytest.raises(control.Aborted, match="abort requested"):
+        side.run(cfg)
+
+    assert side.calls[-3:] == ["withdraw", "recover_cursor", "close"]
+    assert side.calls.count("recover_cursor") == 2
+
+
+def test_receiver_opens_inventory_before_using_items(cfg):
+    side = Receiver(GO, inventory_opens=False)
+    with pytest.raises(Stopped, match="inventory would not open"):
+        side.run(cfg)
+    assert side.calls[-2:] == ["close", "open_inventory"]
+    assert "use" not in side.calls
+
+
+def test_receiver_stops_before_the_next_cycle_if_items_remain(cfg):
+    side = Receiver(GO, use_report=report(55, Result.MAX_PASSES, left=5))
+
+    with pytest.raises(Stopped, match="55 confirmed opened, 5 still visible"):
+        side.run(cfg, cycles=2)
+
+    assert side.calls.count("wait") == 1
+    assert side.calls[-1] == "use"
+    assert side.opening_records == [(1, 60, side.use_report)]
 
 
 def test_receiver_stops_when_no_one_announces(cfg):

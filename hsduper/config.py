@@ -1,5 +1,7 @@
 """Everything machine-specific lives in config.json, written by `calibrate`."""
 
+import base64
+import binascii
 import json
 from pathlib import Path
 
@@ -32,6 +34,11 @@ DEFAULT_TIMING = {
     "tooltip_ms": 150,
     "pass_settle_ms": 250,
     "max_passes": 6,
+    # Item opening is server-backed and needs a slower cadence than transfers.
+    "use_click_delay_ms": 90,
+    # Let late server responses settle before rescanning and retrying the slots
+    # whose items are still visibly present.
+    "use_retry_delay_ms": 500,
     # Between the steps of sending a chat line: opening it, picking the tab,
     # focusing the field, sending.
     "chat_step_ms": 180,
@@ -41,6 +48,11 @@ DEFAULT_TIMING = {
     "after_ready_ms": 0,
     # After clicking a panel open or shut, before believing the anchor.
     "panel_settle_ms": 450,
+    # Opening can animate for longer than the generic settle delay. Poll the
+    # anchor throughout this window so a late-opened stash is detected before
+    # another interaction clicks it shut again.
+    "panel_open_timeout_ms": 2500,
+    "panel_poll_ms": 100,
     # How long each side waits on the other: the sender for the confirmation,
     # the receiver for the items to show up in the stash.
     #
@@ -71,6 +83,7 @@ DEFAULT_PHASE2 = {
 #: panel is treated as not open. Generous, because the panel is drawn over a
 #: moving scene and its titles pick up a little of what is behind them.
 ANCHOR_TOLERANCE = 26
+ANCHOR_CORRELATION = 0.65
 
 #: How far the cursor may sit from where it was last commanded before this is
 #: read as the user having taken the mouse back.
@@ -152,6 +165,32 @@ class Config:
         if not anchor:
             return False
         frame = capture.grab(tuple(anchor["rect"]))
+
+        # New calibrations compare the shape of the title text. Normalized
+        # correlation ignores a global brightness/contrast change while still
+        # requiring the same letters in the same place. The old mean-colour
+        # check remains as a compatibility fallback for existing config files.
+        encoded = anchor.get("luminance_template")
+        if encoded is not None:
+            try:
+                raw = base64.b64decode(encoded, validate=True)
+                height, width = frame.shape[:2]
+                wanted = np.frombuffer(raw, dtype=np.uint8)
+                if wanted.size != height * width:
+                    return False
+                wanted = wanted.astype(float).reshape(height, width)
+            except (binascii.Error, TypeError, ValueError):
+                return False
+            seen_luminance = capture.luminance(frame).astype(float)
+            wanted -= wanted.mean()
+            seen_luminance -= seen_luminance.mean()
+            scale = np.linalg.norm(wanted) * np.linalg.norm(seen_luminance)
+            if scale <= 1e-9:
+                return False
+            correlation = float(np.sum(wanted * seen_luminance) / scale)
+            threshold = self.data.get("anchor_correlation", ANCHOR_CORRELATION)
+            return correlation >= threshold
+
         seen = frame.reshape(-1, 3).mean(axis=0)
         want = np.array(anchor["color"], dtype=float)
         return bool(np.linalg.norm(seen - want) <= self.data.get("anchor_tolerance", ANCHOR_TOLERANCE))

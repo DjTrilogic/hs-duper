@@ -1,5 +1,7 @@
 """Panel anchors - the guard that decides whether clicking is safe at all."""
 
+import base64
+
 import numpy as np
 import pytest
 
@@ -27,6 +29,22 @@ def cfg_with_anchor(colour=(120, 40, 40), tolerance=26):
     })
 
 
+def cfg_with_template(frame, correlation=0.65):
+    luminance = capture.luminance(frame)
+    encoded = base64.b64encode(np.rint(luminance).astype(np.uint8).tobytes()).decode()
+    height, width = frame.shape[:2]
+    return Config({
+        "anchors": {
+            "stash": {
+                "rect": [10, 10, width, height],
+                "color": [0, 0, 0],
+                "luminance_template": encoded,
+            }
+        },
+        "anchor_correlation": correlation,
+    })
+
+
 def test_an_anchor_that_still_matches_is_ok(flat_screen):
     assert cfg_with_anchor().anchor_ok("stash")
 
@@ -42,23 +60,55 @@ def test_small_drift_is_tolerated(flat_screen):
     assert cfg_with_anchor().anchor_ok("stash")
 
 
+def test_template_anchor_tolerates_a_large_brightness_change(monkeypatch):
+    template = np.zeros((20, 80, 3), dtype=np.uint8)
+    template[5:15, 18:62] = 120
+    current = np.clip(template.astype(float) * 1.4 + 35, 0, 255).astype(np.uint8)
+    monkeypatch.setattr(capture, "grab", lambda _: current)
+
+    assert cfg_with_template(template).anchor_ok("stash")
+
+
+def test_template_anchor_rejects_a_different_shape(monkeypatch):
+    template = np.zeros((20, 80, 3), dtype=np.uint8)
+    template[5:15, 18:62] = 180
+    current = np.zeros_like(template)
+    current[:, :12] = 180
+    monkeypatch.setattr(capture, "grab", lambda _: current)
+
+    assert not cfg_with_template(template).anchor_ok("stash")
+
+
+def test_malformed_template_fails_closed(flat_screen):
+    cfg = cfg_with_anchor()
+    cfg.data["anchors"]["stash"]["luminance_template"] = "not base64!"
+
+    assert not cfg.anchor_ok("stash")
+
+
 def test_an_uncalibrated_anchor_fails_closed(flat_screen):
     """CTRL+LMB moves an item with the stash open and USES it with the stash
     closed, so 'I was never told what to look for' must not mean 'go ahead'.
     A dropped item can be picked back up; a used one cannot."""
     cfg = Config({"anchors": {}})
     assert not cfg.anchor_ok("stash")
-    assert cfg.missing_anchors(["inventory", "stash"]) == ["inventory", "stash"]
+    assert cfg.missing_anchors(["inventory_stash_open", "stash"]) == [
+        "inventory_stash_open", "stash"
+    ]
 
 
 def test_missing_anchors_names_only_the_bad_ones(flat_screen):
     cfg = Config({
         "anchors": {
             "stash": {"rect": [10, 10, 80, 20], "color": [120, 40, 40]},
-            "inventory": {"rect": [10, 40, 80, 20], "color": [0, 0, 0]},
+            "inventory_standalone": {
+                "rect": [10, 40, 80, 20], "color": [0, 0, 0]
+            },
         }
     })
-    assert cfg.missing_anchors(["stash", "inventory"]) == ["inventory"]
+    assert cfg.missing_anchors(["stash", "inventory_standalone"]) == [
+        "inventory_standalone"
+    ]
 
 
 def test_a_configured_timing_wins_even_if_it_is_not_a_known_default():
@@ -72,6 +122,8 @@ def test_an_unset_timing_falls_back_to_the_default():
     from hsduper.config import DEFAULT_TIMING
 
     assert Config({}).timing("click_delay_ms") == DEFAULT_TIMING["click_delay_ms"]
+    assert Config({}).timing("use_click_delay_ms") == 90
+    assert Config({}).timing("use_retry_delay_ms") == 500
 
 
 def test_a_genuinely_unknown_timing_still_raises():

@@ -2,9 +2,9 @@
 
 The sender never touches the panels: it deposits, announces, withdraws, and
 goes round again with the stash open throughout. The receiver has to shut the
-stash to use what it took and open it again afterwards, which is the fragile
-half - opening needs a click on the stash object in the world, so it depends on
-the character still standing next to it.
+stash, open the inventory, and use what it took. It opens the stash again on
+the next cycle, which is the fragile half: pressing F only works while the
+character is still standing in front of it.
 
 Every step is injected rather than reached for, so the sequence can be tested
 without a game.
@@ -36,6 +36,9 @@ class Stopped(RuntimeError):
     """A cycle could not complete, with the reason as the message."""
 
 
+DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS = 3
+
+
 def _moved(report: Report, what: str) -> int:
     """The count, or a stop.
 
@@ -48,6 +51,89 @@ def _moved(report: Report, what: str) -> int:
     if report.moved == 0:
         raise Stopped(f"{what} moved nothing at all - {report}")
     return report.moved
+
+
+def _withdraw_and_close(
+    cfg: Config, withdraw, close_stash, recover_cursor=None, log=print
+) -> int:
+    """Withdraw, recovering if a missed CTRL leaves an item on the cursor.
+
+    A failed close is evidence that an item may still be attached. The recovery
+    callback places it into a screen-confirmed empty inventory slot, then the
+    remaining stash is retried with another CTRL delivery mode. This also covers
+    the last visible item: a grid can look empty while it is still on the cursor.
+    """
+    attempts = max(
+        int(cfg.data.get("withdraw_recovery_attempts", DEFAULT_WITHDRAW_RECOVERY_ATTEMPTS)),
+        1,
+    )
+    configured_mode = cfg.data.get("ctrl_mode")
+    fallback_modes = ("both", "vk", "scancode")
+
+    def abort_cleanup() -> None:
+        # CTRL is already released by transfer's finally block. Place any
+        # carried item into inventory, then close the still-open stash. This
+        # deliberately ignores the abort flag: it is the safe work remaining.
+        log("  abort cleanup: returning any cursor item and closing the stash")
+        try:
+            if recover_cursor is not None:
+                recover_cursor()
+            if not close_stash():
+                close_stash()
+        except Exception as exc:
+            log(f"  abort cleanup could not verify the stash: {exc}")
+
+    def run_withdraw(attempt: int):
+        mode = configured_mode or fallback_modes[min(attempt - 1, len(fallback_modes) - 1)]
+        marker = object()
+        previous = cfg.data.get("ctrl_mode", marker)
+        cfg.data["ctrl_mode"] = mode
+        log(f"  withdraw CTRL mode: {mode}")
+        try:
+            try:
+                return withdraw()
+            except control.Aborted:
+                abort_cleanup()
+                raise
+        finally:
+            if previous is marker:
+                cfg.data.pop("ctrl_mode", None)
+            else:
+                cfg.data["ctrl_mode"] = previous
+
+    report = run_withdraw(1)
+    withdrawn = report.moved
+
+    for attempt in range(1, attempts + 1):
+        control.check()
+        label = "closing the stash" if attempt == 1 else "closing the stash again"
+        log(f"  {label} (attempt {attempt}/{attempts})")
+        if close_stash():
+            _moved(report, "the withdraw")
+            return max(withdrawn, report.moved)
+
+        log("  stash stayed open; placing any cursor item into an empty inventory cell")
+        if recover_cursor is not None:
+            recover_cursor()
+
+        if attempt >= attempts:
+            # Leave the UI and cursor in a safe state even though this cycle is
+            # about to stop. If the recovery placed an item, this Escape should
+            # now close the stash instead of merely cancelling the cursor.
+            log("  final cleanup: closing the stash before stopping")
+            close_stash()
+            break
+
+        log("  rescanning and retrying the withdraw with the next CTRL mode")
+        control.check()
+        report = run_withdraw(attempt + 1)
+        withdrawn = max(withdrawn, report.moved)
+
+    raise Stopped(
+        "the stash would not close after recovery attempts, and using an item needs "
+        "it shut - with the stash open the same gesture moves the item instead of "
+        "using it."
+    )
 
 
 def run_sender(cfg: Config, cycles: int, *, ensure_stash, have_items, deposit,
@@ -128,8 +214,9 @@ def run_sender(cfg: Config, cycles: int, *, ensure_stash, have_items, deposit,
 
 
 def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_items,
-                 confirm, withdraw, close_stash, use_all, log=print):
-    """wait -> open the stash -> see the items -> confirm -> withdraw -> shut, use.
+                 confirm, withdraw, close_stash, open_inventory, use_all,
+                 recover_cursor=None, record_opening=None, log=print):
+    """wait -> open stash -> see -> confirm -> withdraw -> shut -> open inventory -> use.
 
     A cycle ends with the stash shut and does not reopen it. Reopening only
     when the next go signal arrives is what makes `see_items` trustworthy: a
@@ -175,18 +262,28 @@ def run_receiver(cfg: Config, cycles: int, *, wait_ready, ensure_stash, see_item
         confirm(seen_token)
 
         control.check()
-        withdrawn = _moved(withdraw(), "the withdraw")
+        withdrawn = _withdraw_and_close(
+            cfg, withdraw, close_stash, recover_cursor=recover_cursor, log=log
+        )
 
         control.check()
-        log("  closing the stash")
-        if not close_stash():
+        log("  opening the inventory")
+        if not open_inventory():
             raise Stopped(
-                "the stash would not close, and using an item needs it shut - with the "
-                "stash open the same gesture moves the item instead of using it."
+                "the inventory would not open. Stopping before trying to use any items."
             )
 
         control.check()
-        used = _moved(use_all(), "using the items")
+        use_report = use_all()
+        if record_opening is not None:
+            record_opening(n, withdrawn, use_report)
+        used = use_report.moved
+        if use_report.result is not Result.DONE or use_report.left:
+            raise Stopped(
+                f"item opening is incomplete: {used} confirmed opened, "
+                f"{use_report.left} still visible after all retries. Leaving the "
+                "inventory open and stopping before the next stash cycle."
+            )
 
         cycle = Cycle(n, 0, withdrawn, used)
         log(f"  {cycle} (stash left shut until the next signal)")
